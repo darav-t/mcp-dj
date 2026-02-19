@@ -1,0 +1,589 @@
+"""
+FastMCP Server for Claude Desktop Integration
+
+Provides tools for generating setlists, recommending tracks, and analyzing
+harmonic compatibility — callable directly from Claude Desktop.
+
+To connect to Claude Desktop, add to claude_desktop_config.json:
+{
+  "mcpServers": {
+    "dj-setlist-creator": {
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/set_list_creator", "python", "-m", "setlist_creator.mcp_server"],
+      "env": {}
+    }
+  }
+}
+"""
+
+import asyncio
+import os
+import signal
+import sys
+from pathlib import Path
+from typing import Optional, List, Dict, Any
+
+from fastmcp import FastMCP
+from loguru import logger
+
+from .database import RekordboxDatabase
+from .energy import MixedInKeyLibrary, EnergyResolver
+from .camelot import CamelotWheel
+from .energy_planner import EnergyPlanner, ENERGY_PROFILES
+from .setlist_engine import SetlistEngine
+from .models import SetlistRequest
+
+# ---------------------------------------------------------------------------
+# Global state
+# ---------------------------------------------------------------------------
+
+mcp = FastMCP("DJ Setlist Creator")
+
+db: Optional[RekordboxDatabase] = None
+engine: Optional[SetlistEngine] = None
+_initialized = False
+
+
+async def _ensure_initialized():
+    """Lazy-initialize the database and engine on first tool call."""
+    global db, engine, _initialized
+    if _initialized:
+        return
+
+    logger.info("Initializing Setlist Creator MCP server...")
+    db = RekordboxDatabase()
+    await db.connect()
+
+    # Load Mixed In Key energy data (optional — requires MIK_CSV_PATH env var)
+    mik = MixedInKeyLibrary.from_env()
+    if mik is not None:
+        mik.load()
+    resolver = EnergyResolver(mik)
+
+    all_tracks = await db.get_all_tracks()
+    resolver.resolve_all(all_tracks)
+
+    engine = SetlistEngine(
+        tracks=all_tracks,
+        camelot=CamelotWheel(),
+        energy_planner=EnergyPlanner(),
+    )
+    _initialized = True
+    logger.info(f"MCP server ready with {len(all_tracks)} tracks")
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def generate_setlist(
+    duration_minutes: int = 60,
+    genre: Optional[str] = None,
+    bpm_min: Optional[float] = None,
+    bpm_max: Optional[float] = None,
+    energy_profile: str = "journey",
+    starting_track_title: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Generate a DJ setlist with harmonic mixing and energy arc planning.
+
+    Args:
+        duration_minutes: Target set duration in minutes (default 60)
+        genre: Genre filter (e.g. 'tech house', 'techno'). Optional.
+        bpm_min: Minimum BPM filter. Optional.
+        bpm_max: Maximum BPM filter. Optional.
+        energy_profile: Energy arc profile - one of: journey, build, peak, chill, wave
+            - journey: Classic warm-up, build, peak, cool-down arc
+            - build:   Continuous energy build from low to high
+            - peak:    High energy throughout (peak-time slot)
+            - chill:   Low-energy ambient/warm-up set
+            - wave:    Multiple energy waves with peaks and valleys
+        starting_track_title: Title of the track to start with. Optional.
+
+    Returns:
+        Complete setlist with track list, energy arc, harmonic score, and stats.
+    """
+    await _ensure_initialized()
+
+    # Find starting track by title if provided
+    starting_id = None
+    if starting_track_title:
+        for t in engine.tracks:
+            if starting_track_title.lower() in t.title.lower():
+                starting_id = t.id
+                break
+
+    request = SetlistRequest(
+        prompt=starting_track_title or f"{duration_minutes}min {energy_profile} set",
+        duration_minutes=max(10, min(480, duration_minutes)),
+        genre=genre,
+        bpm_min=bpm_min,
+        bpm_max=bpm_max,
+        energy_profile=energy_profile if energy_profile in ENERGY_PROFILES else "journey",
+        starting_track_id=starting_id,
+    )
+
+    setlist = engine.generate_setlist(request)
+
+    return {
+        "setlist_id": setlist.id,
+        "name": setlist.name,
+        "track_count": setlist.track_count,
+        "duration_minutes": round(setlist.total_duration_seconds / 60),
+        "avg_bpm": setlist.avg_bpm,
+        "bpm_range": {"min": setlist.bpm_range[0], "max": setlist.bpm_range[1]},
+        "harmonic_score": setlist.harmonic_score,
+        "energy_arc": setlist.energy_arc,
+        "genre_distribution": setlist.genre_distribution,
+        "tracks": [
+            {
+                "position": st.position,
+                "artist": st.track.artist,
+                "title": st.track.title,
+                "bpm": st.track.bpm,
+                "key": st.track.key,
+                "energy": st.track.energy,
+                "genre": st.track.genre,
+                "duration": st.track.duration_formatted(),
+                "key_relation": st.key_relation,
+                "transition_score": st.transition_score,
+                "notes": st.notes,
+            }
+            for st in setlist.tracks
+        ],
+    }
+
+
+@mcp.tool()
+async def recommend_next_track(
+    current_track_title: str,
+    energy_direction: str = "maintain",
+    limit: int = 5,
+) -> List[Dict[str, Any]]:
+    """
+    Recommend what tracks to play after a specific track.
+
+    The AI considers harmonic compatibility (Camelot wheel), energy flow,
+    BPM proximity, and genre coherence.
+
+    Args:
+        current_track_title: Title (or "Artist - Title") of the currently playing track
+        energy_direction: "up" to raise energy, "down" to lower, "maintain" to keep level
+        limit: Number of recommendations to return (default 5, max 20)
+
+    Returns:
+        List of recommended tracks with scores and reasoning.
+    """
+    await _ensure_initialized()
+
+    recs = engine.recommend_next(
+        current_track_title=current_track_title,
+        energy_direction=energy_direction,
+        limit=min(limit, 20),
+    )
+
+    if not recs:
+        return [{"error": f"Track '{current_track_title}' not found in library"}]
+
+    return [
+        {
+            "rank": i + 1,
+            "artist": r.track.artist,
+            "title": r.track.title,
+            "bpm": r.track.bpm,
+            "key": r.track.key,
+            "energy": r.track.energy,
+            "genre": r.track.genre,
+            "duration": r.track.duration_formatted(),
+            "overall_score": r.score,
+            "harmonic_score": r.harmonic_score,
+            "energy_score": r.energy_score,
+            "bpm_score": r.bpm_score,
+            "genre_score": r.genre_score,
+            "reason": r.reason,
+        }
+        for i, r in enumerate(recs)
+    ]
+
+
+@mcp.tool()
+async def get_track_compatibility(
+    track_a_title: str,
+    track_b_title: str,
+) -> Dict[str, Any]:
+    """
+    Check harmonic and energy compatibility between two specific tracks.
+
+    Args:
+        track_a_title: Title of the first track (currently playing)
+        track_b_title: Title of the second track (potential next track)
+
+    Returns:
+        Detailed compatibility analysis.
+    """
+    await _ensure_initialized()
+
+    camelot = engine.camelot
+
+    # Find both tracks
+    track_a = next(
+        (t for t in engine.tracks if track_a_title.lower() in t.title.lower()), None
+    )
+    track_b = next(
+        (t for t in engine.tracks if track_b_title.lower() in t.title.lower()), None
+    )
+
+    if not track_a:
+        return {"error": f"Track '{track_a_title}' not found"}
+    if not track_b:
+        return {"error": f"Track '{track_b_title}' not found"}
+
+    h_score, rel = camelot.transition_score(track_a.key or "", track_b.key or "")
+    bpm_pct_diff = (
+        abs(track_b.bpm - track_a.bpm) / track_a.bpm * 100
+        if track_a.bpm > 0 else 0
+    )
+
+    energy_delta = (track_b.energy or 5) - (track_a.energy or 5)
+
+    verdict = (
+        "✅ Excellent mix" if h_score >= 0.85 and bpm_pct_diff <= 4
+        else "👍 Good mix" if h_score >= 0.65
+        else "⚠️ Acceptable mix" if h_score >= 0.4
+        else "❌ Difficult transition"
+    )
+
+    return {
+        "track_a": {"artist": track_a.artist, "title": track_a.title, "bpm": track_a.bpm, "key": track_a.key, "energy": track_a.energy},
+        "track_b": {"artist": track_b.artist, "title": track_b.title, "bpm": track_b.bpm, "key": track_b.key, "energy": track_b.energy},
+        "harmonic_score": h_score,
+        "key_relationship": rel,
+        "bpm_difference": round(track_b.bpm - track_a.bpm, 1),
+        "bpm_pct_difference": round(bpm_pct_diff, 1),
+        "energy_delta": energy_delta,
+        "verdict": verdict,
+        "tips": _get_mix_tips(rel, bpm_pct_diff, energy_delta),
+    }
+
+
+@mcp.tool()
+async def analyze_energy_flow(
+    track_titles: List[str],
+) -> Dict[str, Any]:
+    """
+    Analyze the energy flow of a sequence of tracks.
+
+    Args:
+        track_titles: List of track titles in set order
+
+    Returns:
+        Energy arc analysis with recommendations for improvement.
+    """
+    await _ensure_initialized()
+
+    planner = engine.planner
+    found_tracks = []
+
+    for title in track_titles:
+        track = next(
+            (t for t in engine.tracks if title.lower() in t.title.lower()), None
+        )
+        found_tracks.append(track)
+
+    energies = [(t.energy or 5) if t else 5 for t in found_tracks]
+    n = len(energies)
+
+    # Compare to journey profile
+    target_journey = [round(planner.get_target_energy(i / max(1, n - 1), "journey")) for i in range(n)]
+
+    issues = []
+    for i in range(1, n):
+        delta = abs(energies[i] - energies[i - 1])
+        if delta > 3:
+            issues.append(f"Position {i+1}: Large energy jump ({delta} levels)")
+    for i in range(2, n):
+        if energies[i] == energies[i-1] == energies[i-2]:
+            issues.append(f"Position {i+1}: Plateau detected (3+ tracks at E{energies[i]})")
+
+    return {
+        "track_count": n,
+        "energy_values": energies,
+        "target_journey": target_journey,
+        "avg_energy": round(sum(energies) / n, 1) if energies else 0,
+        "energy_range": {"min": min(energies), "max": max(energies)} if energies else {},
+        "issues": issues,
+        "score": round(1.0 - len(issues) / max(n, 1), 2),
+        "tracks_found": [
+            {"title": t.title, "energy": t.energy, "key": t.key, "bpm": t.bpm}
+            if t else None
+            for t in found_tracks
+        ],
+    }
+
+
+@mcp.tool()
+async def get_compatible_tracks(
+    key: str,
+    bpm: Optional[float] = None,
+    bpm_tolerance: float = 4.0,
+    energy_min: Optional[int] = None,
+    energy_max: Optional[int] = None,
+    genre: Optional[str] = None,
+    limit: int = 20,
+) -> List[Dict[str, Any]]:
+    """
+    Find tracks in the library compatible with a given key and BPM.
+
+    Args:
+        key: Camelot key (e.g. '8A', '12B')
+        bpm: Target BPM. Optional.
+        bpm_tolerance: BPM tolerance percentage (default 4%)
+        energy_min: Minimum energy level 1-10. Optional.
+        energy_max: Maximum energy level 1-10. Optional.
+        genre: Genre filter. Optional.
+        limit: Max results (default 20)
+
+    Returns:
+        List of compatible tracks sorted by harmonic score.
+    """
+    await _ensure_initialized()
+
+    camelot = engine.camelot
+    compatible_keys = camelot.get_compatible_keys(key)
+
+    if not compatible_keys:
+        return [{"error": f"Invalid Camelot key: {key}"}]
+
+    results = []
+    for track in engine.tracks:
+        # Key filter
+        if not track.key:
+            continue
+        tk = track.key.strip().upper()
+        if tk not in compatible_keys:
+            continue
+        h_score = compatible_keys[tk]
+
+        # BPM filter
+        if bpm is not None and track.bpm > 0:
+            pct_diff = abs(track.bpm - bpm) / bpm * 100
+            if pct_diff > bpm_tolerance:
+                continue
+
+        # Energy filter
+        if energy_min is not None and (track.energy or 0) < energy_min:
+            continue
+        if energy_max is not None and (track.energy or 10) > energy_max:
+            continue
+
+        # Genre filter
+        if genre and track.genre and genre.lower() not in track.genre.lower():
+            continue
+
+        _, rel = camelot.transition_score(key, track.key)
+        results.append({
+            "artist": track.artist,
+            "title": track.title,
+            "bpm": track.bpm,
+            "key": track.key,
+            "energy": track.energy,
+            "genre": track.genre,
+            "rating": track.rating,
+            "harmonic_score": h_score,
+            "key_relationship": rel,
+        })
+
+    results.sort(key=lambda x: (-x["harmonic_score"], -x["rating"]))
+    return results[:limit]
+
+
+@mcp.tool()
+async def export_setlist_to_rekordbox(
+    setlist_name: str,
+    track_titles: Optional[List[str]] = None,
+    setlist_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Create a Rekordbox playlist from a setlist.
+
+    Args:
+        setlist_name: Name for the new Rekordbox playlist
+        track_titles: List of track titles in order. Use if setlist_id is not available.
+        setlist_id: ID of a previously generated setlist. If provided, track_titles ignored.
+
+    Returns:
+        Result with playlist_id on success.
+    """
+    await _ensure_initialized()
+
+    track_ids = []
+
+    if setlist_id:
+        setlist = engine.get_setlist(setlist_id)
+        if setlist:
+            track_ids = [st.track.id for st in setlist.tracks]
+        else:
+            return {"success": False, "error": f"Setlist {setlist_id} not found"}
+    elif track_titles:
+        for title in track_titles:
+            track = next(
+                (t for t in engine.tracks if title.lower() in t.title.lower()), None
+            )
+            if track:
+                track_ids.append(track.id)
+    else:
+        return {"success": False, "error": "Provide either setlist_id or track_titles"}
+
+    if not track_ids:
+        return {"success": False, "error": "No tracks found to export"}
+
+    try:
+        playlist_id = await db.create_playlist_with_tracks(
+            name=setlist_name, track_ids=track_ids
+        )
+        return {
+            "success": True,
+            "playlist_id": playlist_id,
+            "playlist_name": setlist_name,
+            "track_count": len(track_ids),
+            "message": f"Created playlist '{setlist_name}' with {len(track_ids)} tracks in Rekordbox",
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+async def get_library_summary() -> Dict[str, Any]:
+    """
+    Get a summary of the loaded Rekordbox library.
+
+    Returns:
+        Library statistics including track count, BPM range, top genres, and key distribution.
+    """
+    await _ensure_initialized()
+    summary = engine.get_library_summary()
+    summary["energy_profiles"] = {
+        k: v["description"] for k, v in ENERGY_PROFILES.items()
+    }
+    return summary
+
+
+@mcp.tool()
+async def search_library(
+    query: str,
+    limit: int = 20,
+) -> List[Dict[str, Any]]:
+    """
+    Search the Rekordbox library for tracks.
+
+    Args:
+        query: Search string (matches title, artist, album, genre)
+        limit: Maximum results (default 20)
+
+    Returns:
+        List of matching tracks with metadata.
+    """
+    await _ensure_initialized()
+
+    q = query.strip().lower()
+    results = []
+    for t in engine.tracks:
+        if (q in t.title.lower()
+                or q in t.artist.lower()
+                or q in (t.genre or "").lower()
+                or q in (t.album or "").lower()):
+            results.append({
+                "id": t.id,
+                "artist": t.artist,
+                "title": t.title,
+                "bpm": t.bpm,
+                "key": t.key,
+                "energy": t.energy,
+                "energy_source": t.energy_source,
+                "genre": t.genre,
+                "rating": t.rating,
+                "play_count": t.play_count,
+                "duration": t.duration_formatted(),
+            })
+            if len(results) >= limit:
+                break
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _get_mix_tips(rel: str, bpm_pct_diff: float, energy_delta: int) -> List[str]:
+    tips = []
+
+    if rel == "incompatible":
+        tips.append("Keys are incompatible — consider key-shifting with DJ software")
+    elif rel in ("adjacent_up", "adjacent_down"):
+        tips.append("Smooth harmonic transition — can mix long overlaps")
+    elif rel == "energy_boost":
+        tips.append("Energy boost transition — powerful but use sparingly")
+    elif rel == "inner_outer":
+        tips.append("Major/minor switch — works well for emotional shifts")
+
+    if bpm_pct_diff > 6:
+        tips.append(f"Large BPM gap ({bpm_pct_diff:.0f}%) — consider a quick cut or beatgrid anchor")
+    elif bpm_pct_diff > 3:
+        tips.append(f"Moderate BPM difference ({bpm_pct_diff:.0f}%) — keep overlap short")
+
+    if abs(energy_delta) > 3:
+        tips.append(f"Large energy jump ({energy_delta:+d}) — might be jarring; build more gradually")
+    elif energy_delta > 1:
+        tips.append("Energy is rising — good for building crowd momentum")
+    elif energy_delta < -1:
+        tips.append("Energy is dropping — use for planned cooldown moments")
+
+    return tips if tips else ["Transition looks clean!"]
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def main():
+    """Run the MCP server."""
+    import argparse
+
+    def handle_shutdown(sig, frame):
+        logger.info("Shutting down MCP server...")
+        if db:
+            asyncio.get_event_loop().run_until_complete(db.disconnect())
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, handle_shutdown)
+    signal.signal(signal.SIGTERM, handle_shutdown)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--transport", default="stdio", choices=["stdio", "sse"])
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--ssl-certfile", default=None)
+    parser.add_argument("--ssl-keyfile", default=None)
+    args = parser.parse_args()
+
+    logger.info("Starting DJ Setlist Creator MCP Server...")
+
+    if args.transport == "sse":
+        uvicorn_config = {}
+        if args.ssl_certfile and args.ssl_keyfile:
+            uvicorn_config["ssl_certfile"] = args.ssl_certfile
+            uvicorn_config["ssl_keyfile"] = args.ssl_keyfile
+        mcp.run(
+            transport="sse",
+            host=args.host,
+            port=args.port,
+            uvicorn_config=uvicorn_config if uvicorn_config else None,
+        )
+    else:
+        mcp.run()
+
+
+if __name__ == "__main__":
+    main()

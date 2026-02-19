@@ -1,0 +1,23 @@
+{
+  "_comment": "Add the 'dj-setlist-creator' block inside the 'mcpServers' key in your Claude Desktop config.",
+  "_config_location_mac": "~/Library/Application Support/Claude/claude_desktop_config.json",
+  "_config_location_win": "%APPDATA%\\Claude\\claude_desktop_config.json",
+  "_instructions": "Replace /path/to/set_list_creator below with the absolute path to this repo on your machine.",
+  "mcpServers": {
+    "dj-setlist-creator": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--project",
+        "/path/to/set_list_creator",
+        "python",
+        "-m",
+        "setlist_creator.mcp_server"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY": "sk-ant-...",
+        "MIK_CSV_PATH": "/path/to/Mixed In Key Data/Library.csv"
+      }
+    }
+  }
+}

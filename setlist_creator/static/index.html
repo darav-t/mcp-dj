@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DJ Setlist Creator</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    /* ── Design tokens ────────────────────────────────────────── */
+    :root {
+      --bg:        #0d0d0f;
+      --surface:   #18181c;
+      --surface2:  #222228;
+      --surface3:  #2c2c35;
+      --border:    #35353f;
+      --accent:    #8b5cf6;
+      --accent2:   #6d28d9;
+      --accent-glow: rgba(139,92,246,.25);
+      --text:      #e8e8f0;
+      --text-muted:#888899;
+      --text-dim:  #555566;
+      --green:     #22c55e;
+      --yellow:    #eab308;
+      --orange:    #f97316;
+      --red:       #ef4444;
+      --blue:      #3b82f6;
+      --radius:    10px;
+      --radius-sm: 6px;
+    }
+
+    /* ── Reset ────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+      overflow: hidden;
+    }
+    button { cursor: pointer; font-family: inherit; }
+    input, textarea { font-family: inherit; }
+
+    /* ── Layout ───────────────────────────────────────────────── */
+    .layout {
+      display: grid;
+      grid-template-rows: 56px 1fr;
+      grid-template-columns: 420px 1fr;
+      height: 100vh;
+      gap: 0;
+    }
+
+    /* ── Header ───────────────────────────────────────────────── */
+    header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 16px; font-weight: 700; letter-spacing: -.3px;
+    }
+    .logo-icon { font-size: 20px; }
+    .header-stats {
+      display: flex; gap: 18px; margin-left: 24px; align-items: center;
+    }
+    .stat { font-size: 12px; color: var(--text-muted); }
+    .stat strong { color: var(--text); font-weight: 600; }
+    .header-actions { margin-left: auto; display: flex; gap: 8px; }
+
+    /* ── Panels ───────────────────────────────────────────────── */
+    .chat-panel {
+      display: flex; flex-direction: column;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .viz-panel {
+      display: flex; flex-direction: column;
+      background: var(--bg);
+      overflow: hidden;
+    }
+
+    /* ── Chat ─────────────────────────────────────────────────── */
+    .chat-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .chat-header h2 { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
+    .messages {
+      flex: 1; overflow-y: auto; padding: 16px;
+      display: flex; flex-direction: column; gap: 12px;
+      scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+    }
+    .message {
+      display: flex; flex-direction: column; gap: 4px;
+      max-width: 92%;
+    }
+    .message.user { align-self: flex-end; align-items: flex-end; }
+    .message.assistant { align-self: flex-start; align-items: flex-start; }
+    .msg-bubble {
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      line-height: 1.6;
+      font-size: 13.5px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .message.user .msg-bubble {
+      background: var(--accent);
+      color: #fff;
+      border-bottom-right-radius: 3px;
+    }
+    .message.assistant .msg-bubble {
+      background: var(--surface2);
+      color: var(--text);
+      border-bottom-left-radius: 3px;
+      border: 1px solid var(--border);
+    }
+    .msg-time { font-size: 11px; color: var(--text-dim); }
+
+    /* Quick suggestion chips */
+    .suggestions {
+      padding: 12px 16px;
+      display: flex; flex-wrap: wrap; gap: 6px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .chip {
+      padding: 5px 11px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: 12px; color: var(--text-muted);
+      cursor: pointer; transition: all .15s;
+    }
+    .chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
+
+    /* Chat input */
+    .chat-input-area {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: flex; gap: 8px; align-items: flex-end;
+      flex-shrink: 0;
+    }
+    .chat-input-wrap { flex: 1; position: relative; }
+    textarea.chat-input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 10px 14px;
+      resize: none;
+      font-size: 13.5px;
+      line-height: 1.5;
+      min-height: 42px; max-height: 120px;
+      outline: none; transition: border-color .15s;
+    }
+    textarea.chat-input:focus { border-color: var(--accent); }
+    textarea.chat-input::placeholder { color: var(--text-dim); }
+    .send-btn {
+      width: 42px; height: 42px;
+      background: var(--accent);
+      border: none; border-radius: var(--radius);
+      color: #fff; font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .15s; flex-shrink: 0;
+    }
+    .send-btn:hover { background: var(--accent2); }
+    .send-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* Typing indicator */
+    .typing-indicator { display: none; align-items: center; gap: 6px; color: var(--text-muted); font-size: 12px; }
+    .typing-indicator.show { display: flex; }
+    .typing-dots { display: flex; gap: 3px; }
+    .typing-dots span {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--text-muted); animation: bounce .8s infinite;
+    }
+    .typing-dots span:nth-child(2) { animation-delay: .15s; }
+    .typing-dots span:nth-child(3) { animation-delay: .3s; }
+    @keyframes bounce { 0%,80%,100% { transform: translateY(0); } 40% { transform: translateY(-5px); } }
+
+    /* ── Viz Panel ────────────────────────────────────────────── */
+    .viz-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--surface); flex-shrink: 0;
+    }
+    .viz-tabs { display: flex; gap: 2px; background: var(--surface2); border-radius: var(--radius-sm); padding: 3px; }
+    .viz-tab {
+      padding: 5px 14px;
+      border-radius: 5px; border: none;
+      font-size: 12px; font-weight: 500;
+      color: var(--text-muted); background: transparent; transition: all .15s;
+    }
+    .viz-tab.active { background: var(--surface3); color: var(--text); }
+    .viz-actions { display: flex; gap: 8px; align-items: center; }
+
+    .viz-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+
+    /* Tab panes */
+    .pane { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+    .pane.active { display: flex; }
+
+    /* ── Setlist Track List ───────────────────────────────────── */
+    .setlist-meta {
+      padding: 12px 20px;
+      display: flex; gap: 16px; align-items: center;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .meta-stat { font-size: 12px; color: var(--text-muted); }
+    .meta-stat strong { color: var(--text); }
+    .harmonic-badge {
+      padding: 2px 8px; border-radius: 12px;
+      font-size: 11px; font-weight: 600;
+      background: var(--accent-glow); color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+
+    .track-list { flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    .track-row {
+      display: grid;
+      grid-template-columns: 36px 1fr auto;
+      gap: 10px; align-items: center;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      transition: background .1s; cursor: default;
+    }
+    .track-row:hover { background: var(--surface2); }
+    .track-row.highlight { background: rgba(139,92,246,.08); border-left: 3px solid var(--accent); }
+
+    .track-pos {
+      width: 26px; height: 26px;
+      background: var(--surface3);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: var(--text-muted);
+      flex-shrink: 0;
+    }
+    .track-info { min-width: 0; }
+    .track-title { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .track-artist { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .track-transition {
+      font-size: 11px; color: var(--text-dim); margin-top: 2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .track-meta { display: flex; gap: 5px; align-items: center; flex-wrap: nowrap; }
+
+    /* Pills */
+    .pill {
+      padding: 2px 7px; border-radius: 10px;
+      font-size: 11px; font-weight: 600;
+      white-space: nowrap;
+    }
+    .pill-bpm { background: rgba(59,130,246,.15); color: #60a5fa; border: 1px solid rgba(59,130,246,.3); }
+    .pill-key { background: rgba(139,92,246,.15); color: #a78bfa; border: 1px solid rgba(139,92,246,.3); }
+    .pill-energy.low  { background: rgba(59,130,246,.15); color: #60a5fa; border: 1px solid rgba(59,130,246,.3); }
+    .pill-energy.mid  { background: rgba(234,179,8,.15); color: #fbbf24; border: 1px solid rgba(234,179,8,.3); }
+    .pill-energy.high { background: rgba(239,68,68,.15); color: #f87171; border: 1px solid rgba(239,68,68,.3); }
+    .pill-compat {
+      font-size: 10px; padding: 2px 5px;
+    }
+    .pill-compat.perfect { background: rgba(34,197,94,.12); color: #4ade80; border: 1px solid rgba(34,197,94,.25); }
+    .pill-compat.good    { background: rgba(234,179,8,.12); color: #fbbf24; border: 1px solid rgba(234,179,8,.25); }
+    .pill-compat.ok      { background: rgba(249,115,22,.12); color: #fb923c; border: 1px solid rgba(249,115,22,.25); }
+    .pill-compat.clash   { background: rgba(239,68,68,.12); color: #f87171; border: 1px solid rgba(239,68,68,.25); }
+
+    /* ── Charts ───────────────────────────────────────────────── */
+    .charts-pane { padding: 20px; gap: 20px; overflow-y: auto; }
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .chart-title { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
+    .chart-wrap { position: relative; }
+
+    /* ── Recommendations ──────────────────────────────────────── */
+    .rec-pane { padding: 16px 20px; gap: 10px; overflow-y: auto; }
+    .rec-search { display: flex; gap: 8px; margin-bottom: 12px; flex-shrink: 0; }
+    .rec-search input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text); padding: 8px 12px; outline: none;
+      font-size: 13px; transition: border-color .15s;
+    }
+    .rec-search input:focus { border-color: var(--accent); }
+    .energy-dir-btns { display: flex; gap: 4px; }
+    .dir-btn {
+      padding: 6px 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-muted); font-size: 12px;
+      transition: all .15s;
+    }
+    .dir-btn.active.up { background: rgba(34,197,94,.15); color: var(--green); border-color: rgba(34,197,94,.4); }
+    .dir-btn.active.down { background: rgba(59,130,246,.15); color: var(--blue); border-color: rgba(59,130,246,.4); }
+    .dir-btn.active.maintain { background: rgba(234,179,8,.15); color: var(--yellow); border-color: rgba(234,179,8,.4); }
+
+    .rec-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      transition: border-color .15s, background .15s;
+      cursor: pointer; flex-shrink: 0;
+    }
+    .rec-card:hover { border-color: var(--accent); background: var(--surface2); }
+    .rec-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+    .rec-rank { font-size: 11px; color: var(--text-dim); font-weight: 700; }
+    .rec-title { font-size: 13.5px; font-weight: 600; }
+    .rec-artist { font-size: 12px; color: var(--text-muted); }
+    .rec-score-bar { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+    .score-label { font-size: 11px; color: var(--text-dim); width: 60px; }
+    .score-track { flex: 1; height: 4px; background: var(--surface3); border-radius: 2px; overflow: hidden; }
+    .score-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width .3s; }
+    .rec-reason { font-size: 12px; color: var(--text-muted); margin-top: 6px; font-style: italic; }
+    .rec-pills { display: flex; gap: 5px; margin-top: 6px; }
+
+    /* ── Empty / Loading states ───────────────────────────────── */
+    .empty-state {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 12px; color: var(--text-dim); text-align: center; padding: 40px;
+    }
+    .empty-icon { font-size: 48px; }
+    .empty-state h3 { font-size: 15px; color: var(--text-muted); font-weight: 600; }
+    .empty-state p { font-size: 13px; line-height: 1.6; }
+
+    /* ── Buttons ──────────────────────────────────────────────── */
+    .btn {
+      padding: 7px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13px; font-weight: 500;
+      border: 1px solid transparent;
+      transition: all .15s; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent2); }
+    .btn-ghost { background: transparent; border-color: var(--border); color: var(--text-muted); }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
+    .btn-danger { background: rgba(239,68,68,.15); border-color: rgba(239,68,68,.3); color: var(--red); }
+    .btn-danger:hover { background: rgba(239,68,68,.25); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ── Toast ────────────────────────────────────────────────── */
+    .toast-container { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; }
+    .toast {
+      padding: 10px 16px; border-radius: var(--radius);
+      font-size: 13px; font-weight: 500;
+      background: var(--surface3); border: 1px solid var(--border);
+      color: var(--text); box-shadow: 0 4px 20px rgba(0,0,0,.4);
+      animation: slideIn .2s ease; max-width: 300px;
+    }
+    .toast.success { border-color: rgba(34,197,94,.4); color: var(--green); background: rgba(34,197,94,.1); }
+    .toast.error { border-color: rgba(239,68,68,.4); color: var(--red); background: rgba(239,68,68,.1); }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+
+    /* ── Scrollbar ────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--surface3); }
+
+    /* ── Export modal ────────────────────────────────────────── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.6);
+      display: none; align-items: center; justify-content: center; z-index: 1000;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 24px; width: 380px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    }
+    .modal h3 { font-size: 16px; margin-bottom: 16px; }
+    .modal label { font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px; }
+    .modal input {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--text); padding: 9px 12px;
+      font-size: 13px; outline: none;
+    }
+    .modal input:focus { border-color: var(--accent); }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+  </style>
+</head>
+<body>
+
+<div class="layout">
+  <!-- ── Header ─────────────────────────────────────────────── -->
+  <header>
+    <div class="logo">
+      <span class="logo-icon">🎛️</span>
+      DJ Setlist Creator
+    </div>
+    <div class="header-stats" id="header-stats">
+      <span class="stat"><strong id="stat-tracks">—</strong> tracks</span>
+      <span class="stat">BPM <strong id="stat-bpm">—</strong></span>
+      <span class="stat">Top genre: <strong id="stat-genre">—</strong></span>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-ghost" onclick="clearChat()">🗑 Clear chat</button>
+      <button class="btn btn-primary" id="export-btn" onclick="showExportModal()" disabled>⬆ Export to Rekordbox</button>
+    </div>
+  </header>
+
+  <!-- ── Chat Panel ─────────────────────────────────────────── -->
+  <section class="chat-panel">
+    <div class="chat-header">
+      <h2>🤖 AI DJ Assistant</h2>
+      <div class="typing-indicator" id="typing">
+        <span>Thinking</span>
+        <div class="typing-dots"><span></span><span></span><span></span></div>
+      </div>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="message assistant">
+        <div class="msg-bubble">
+👋 Hey! I'm your AI DJ assistant. I can analyze your Rekordbox library and generate harmonically-mixed setlists for you.
+
+Try asking me:
+• "Create a 2-hour tech house set at 130 BPM"
+• "Build a chill deep house journey for 90 minutes"
+• "What should I play after [track name]?"
+• "Make a peak-time techno set"
+        </div>
+        <span class="msg-time">Ready</span>
+      </div>
+    </div>
+
+    <div class="suggestions" id="suggestions">
+      <span class="chip" onclick="useSuggestion(this)">🎵 2h Tech House journey</span>
+      <span class="chip" onclick="useSuggestion(this)">🔥 Peak-time Techno set</span>
+      <span class="chip" onclick="useSuggestion(this)">🌊 Deep House chill 90min</span>
+      <span class="chip" onclick="useSuggestion(this)">🌅 Warm-up set 60min</span>
+      <span class="chip" onclick="useSuggestion(this)">📈 Build energy set</span>
+    </div>
+
+    <div class="chat-input-area">
+      <div class="chat-input-wrap">
+        <textarea
+          class="chat-input"
+          id="chat-input"
+          placeholder="Describe your set… or drop a track name for recommendations"
+          rows="1"
+          onkeydown="handleKey(event)"
+          oninput="autoResize(this)"
+        ></textarea>
+      </div>
+      <button class="send-btn" id="send-btn" onclick="sendMessage()">➤</button>
+    </div>
+  </section>
+
+  <!-- ── Visualization Panel ────────────────────────────────── -->
+  <section class="viz-panel">
+    <div class="viz-header">
+      <div class="viz-tabs">
+        <button class="viz-tab active" onclick="switchTab('setlist', this)">Setlist</button>
+        <button class="viz-tab" onclick="switchTab('charts', this)">Charts</button>
+        <button class="viz-tab" onclick="switchTab('recommendations', this)">Next Track</button>
+      </div>
+      <div class="viz-actions" id="viz-actions">
+        <span id="setlist-name-label" style="font-size:13px;color:var(--text-muted);"></span>
+      </div>
+    </div>
+
+    <div class="viz-content">
+      <!-- Setlist pane -->
+      <div class="pane active" id="pane-setlist">
+        <div id="setlist-meta" class="setlist-meta" style="display:none;"></div>
+        <div class="track-list" id="track-list">
+          <div class="empty-state">
+            <div class="empty-icon">🎧</div>
+            <h3>No setlist yet</h3>
+            <p>Ask the AI to create a set for you, or use the quick suggestions in the chat.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts pane -->
+      <div class="pane" id="pane-charts">
+        <div class="charts-pane">
+          <div class="chart-card">
+            <div class="chart-title">⚡ Energy Flow</div>
+            <div class="chart-wrap" style="height:180px;">
+              <canvas id="energy-chart"></canvas>
+            </div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">🎚 BPM Flow</div>
+            <div class="chart-wrap" style="height:140px;">
+              <canvas id="bpm-chart"></canvas>
+            </div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">🎸 Genre Distribution</div>
+            <div class="chart-wrap" style="height:160px;">
+              <canvas id="genre-chart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recommendations pane -->
+      <div class="pane" id="pane-recommendations">
+        <div class="rec-pane">
+          <div class="rec-search">
+            <input
+              type="text"
+              id="rec-input"
+              placeholder="Drop a track title or artist…"
+              onkeydown="if(event.key==='Enter') getRecommendations()"
+            />
+            <div class="energy-dir-btns">
+              <button class="dir-btn up" onclick="setEnergyDir('up', this)" title="Raise energy">↑</button>
+              <button class="dir-btn active maintain" onclick="setEnergyDir('maintain', this)" title="Maintain energy">→</button>
+              <button class="dir-btn down" onclick="setEnergyDir('down', this)" title="Lower energy">↓</button>
+            </div>
+            <button class="btn btn-primary" onclick="getRecommendations()">Find</button>
+          </div>
+          <div id="rec-results">
+            <div class="empty-state" style="flex:unset;padding:20px 0;">
+              <div class="empty-icon">🔍</div>
+              <h3>Enter a track name</h3>
+              <p>Type a track name above and I'll find the best tracks to play next based on harmonic compatibility and energy flow.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Export Modal -->
+<div class="modal-overlay" id="export-modal">
+  <div class="modal">
+    <h3>⬆ Export to Rekordbox</h3>
+    <label>Playlist Name</label>
+    <input type="text" id="export-name" placeholder="My AI Set - Feb 2026" />
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="hideExportModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="exportSetlist()">Create Playlist</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toasts"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const state = {
+  currentSetlist: null,
+  currentRecs: null,
+  energyDir: 'maintain',
+  charts: { energy: null, bpm: null, genre: null },
+  loading: false,
+};
+
+// ── API helpers ────────────────────────────────────────────────────────────
+async function api(path, options = {}) {
+  const resp = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(err || resp.statusText);
+  }
+  return resp.json();
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    const stats = await api('/api/library/stats');
+    document.getElementById('stat-tracks').textContent = stats.total?.toLocaleString() ?? '—';
+    const bpmRange = stats.bpm_min && stats.bpm_max
+      ? `${Math.round(stats.bpm_min)}–${Math.round(stats.bpm_max)}`
+      : '—';
+    document.getElementById('stat-bpm').textContent = bpmRange;
+    const topGenre = stats.top_genres?.[0]?.split(' (')[0] ?? '—';
+    document.getElementById('stat-genre').textContent = topGenre;
+  } catch (e) {
+    console.warn('Could not load library stats:', e);
+  }
+}
+
+// ── Chat ───────────────────────────────────────────────────────────────────
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function useSuggestion(el) {
+  const input = document.getElementById('chat-input');
+  input.value = el.textContent.replace(/^[^\s]+\s/, ''); // strip emoji
+  autoResize(input);
+  sendMessage();
+}
+
+async function sendMessage() {
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg || state.loading) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+  addMessage('user', msg);
+  setLoading(true);
+
+  try {
+    const data = await api('/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message: msg }),
+    });
+
+    addMessage('assistant', data.content);
+
+    if (data.setlist) {
+      state.currentSetlist = data.setlist;
+      renderSetlist(data.setlist);
+      switchTab('setlist', document.querySelector('.viz-tab'));
+      renderCharts(data.setlist);
+      document.getElementById('export-btn').disabled = false;
+    }
+    if (data.recommendations) {
+      state.currentRecs = data.recommendations;
+      renderRecommendations(data.recommendations);
+    }
+  } catch (e) {
+    addMessage('assistant', `⚠️ Error: ${e.message}`);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function clearChat() {
+  try {
+    await api('/api/chat/clear', { method: 'POST' });
+  } catch (_) {}
+  document.getElementById('messages').innerHTML = `
+    <div class="message assistant">
+      <div class="msg-bubble">Chat cleared. Ready to create a new setlist!</div>
+      <span class="msg-time">Now</span>
+    </div>`;
+}
+
+function addMessage(role, content) {
+  const container = document.getElementById('messages');
+  const el = document.createElement('div');
+  el.className = `message ${role}`;
+
+  // Convert markdown-style bold **text**
+  const formatted = content
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+  el.innerHTML = `
+    <div class="msg-bubble">${formatted}</div>
+    <span class="msg-time">${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
+  `;
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+}
+
+function setLoading(on) {
+  state.loading = on;
+  document.getElementById('send-btn').disabled = on;
+  document.getElementById('typing').classList.toggle('show', on);
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.viz-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(`pane-${name}`).classList.add('active');
+  // find the clicked tab button
+  const tabs = document.querySelectorAll('.viz-tab');
+  const idx = ['setlist', 'charts', 'recommendations'].indexOf(name);
+  if (tabs[idx]) tabs[idx].classList.add('active');
+}
+
+// ── Setlist rendering ──────────────────────────────────────────────────────
+function renderSetlist(setlist) {
+  // Meta bar
+  const metaEl = document.getElementById('setlist-meta');
+  metaEl.style.display = 'flex';
+  const dur = Math.round(setlist.total_duration_seconds / 60);
+  metaEl.innerHTML = `
+    <div class="meta-stat"><strong>${setlist.track_count}</strong> tracks</div>
+    <div class="meta-stat"><strong>${dur}</strong> min</div>
+    <div class="meta-stat">Avg BPM: <strong>${setlist.avg_bpm}</strong></div>
+    <div class="meta-stat">BPM: <strong>${Math.round(setlist.bpm_range[0])}–${Math.round(setlist.bpm_range[1])}</strong></div>
+    <div class="harmonic-badge">♪ ${Math.round(setlist.harmonic_score * 100)}% harmonic</div>
+  `;
+
+  document.getElementById('setlist-name-label').textContent = setlist.name;
+
+  // Track list
+  const listEl = document.getElementById('track-list');
+  listEl.innerHTML = '';
+
+  setlist.tracks.forEach(st => {
+    const track = st.track;
+    const row = document.createElement('div');
+    row.className = 'track-row';
+
+    const energyClass = !track.energy ? 'mid'
+      : track.energy <= 4 ? 'low'
+      : track.energy <= 7 ? 'mid' : 'high';
+
+    const compatClass = st.transition_score >= 0.85 ? 'perfect'
+      : st.transition_score >= 0.65 ? 'good'
+      : st.transition_score >= 0.4 ? 'ok' : 'clash';
+    const compatLabel = st.transition_score >= 0.85 ? '✓'
+      : st.transition_score >= 0.65 ? '~'
+      : st.transition_score >= 0.4 ? '△' : '✗';
+
+    const bpmDeltaStr = st.bpm_delta !== 0
+      ? ` <span style="color:var(--text-dim)">${st.bpm_delta > 0 ? '+' : ''}${st.bpm_delta.toFixed(0)} BPM</span>`
+      : '';
+
+    const transitionNote = st.position > 1
+      ? `<div class="track-transition">↳ ${st.notes}${bpmDeltaStr}</div>` : '';
+
+    row.innerHTML = `
+      <div class="track-pos">${st.position}</div>
+      <div class="track-info">
+        <div class="track-title">${esc(track.title)}</div>
+        <div class="track-artist">${esc(track.artist)}</div>
+        ${transitionNote}
+      </div>
+      <div class="track-meta">
+        ${track.bpm > 0 ? `<span class="pill pill-bpm">${Math.round(track.bpm)}</span>` : ''}
+        ${track.key ? `<span class="pill pill-key">${esc(track.key)}</span>` : ''}
+        ${track.energy ? `<span class="pill pill-energy ${energyClass}">E${track.energy}</span>` : ''}
+        ${st.position > 1 ? `<span class="pill pill-compat ${compatClass}" title="${esc(st.key_relation)}">${compatLabel}</span>` : ''}
+      </div>
+    `;
+
+    // Click to recommend next
+    row.addEventListener('dblclick', () => {
+      document.getElementById('rec-input').value = `${track.artist} - ${track.title}`;
+      switchTab('recommendations', null);
+      getRecommendations();
+    });
+
+    listEl.appendChild(row);
+  });
+}
+
+// ── Charts ─────────────────────────────────────────────────────────────────
+function renderCharts(setlist) {
+  if (!setlist?.tracks?.length) return;
+
+  const labels = setlist.tracks.map(st => st.position);
+  const energies = setlist.tracks.map(st => st.track.energy ?? 5);
+  const bpms = setlist.tracks.map(st => st.track.bpm);
+  const targetArc = energies.map((_, i) => {
+    // approximate target - use the setlist's energy arc if available
+    return setlist.energy_arc?.[i] ?? energies[i];
+  });
+
+  // Genre chart data
+  const genreDist = setlist.genre_distribution || {};
+  const genreLabels = Object.keys(genreDist);
+  const genreCounts = Object.values(genreDist);
+
+  // Energy chart
+  const energyCtx = document.getElementById('energy-chart').getContext('2d');
+  if (state.charts.energy) state.charts.energy.destroy();
+  state.charts.energy = new Chart(energyCtx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Actual Energy',
+          data: energies,
+          borderColor: '#8b5cf6',
+          backgroundColor: 'rgba(139,92,246,.12)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.4,
+          pointRadius: 3,
+        },
+        {
+          label: 'Target',
+          data: targetArc,
+          borderColor: 'rgba(255,255,255,.2)',
+          borderWidth: 1,
+          borderDash: [4, 4],
+          fill: false,
+          tension: 0.4,
+          pointRadius: 0,
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true, labels: { color: '#888899', font: { size: 11 } } } },
+      scales: {
+        x: { ticks: { color: '#555566', font: { size: 10 } }, grid: { color: '#222228' } },
+        y: { min: 0, max: 10, ticks: { color: '#555566', font: { size: 10 } }, grid: { color: '#222228' } }
+      }
+    }
+  });
+
+  // BPM chart
+  const bpmCtx = document.getElementById('bpm-chart').getContext('2d');
+  if (state.charts.bpm) state.charts.bpm.destroy();
+  state.charts.bpm = new Chart(bpmCtx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'BPM',
+        data: bpms,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,.08)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#555566', font: { size: 10 } }, grid: { color: '#222228' } },
+        y: { ticks: { color: '#555566', font: { size: 10 } }, grid: { color: '#222228' } }
+      }
+    }
+  });
+
+  // Genre chart
+  if (genreLabels.length > 0) {
+    const genreCtx = document.getElementById('genre-chart').getContext('2d');
+    if (state.charts.genre) state.charts.genre.destroy();
+    const palette = ['#8b5cf6','#3b82f6','#22c55e','#eab308','#f97316','#ef4444','#a78bfa','#60a5fa'];
+    state.charts.genre = new Chart(genreCtx, {
+      type: 'doughnut',
+      data: {
+        labels: genreLabels,
+        datasets: [{
+          data: genreCounts,
+          backgroundColor: palette.slice(0, genreLabels.length),
+          borderWidth: 0,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'right', labels: { color: '#888899', font: { size: 11 }, padding: 10, boxWidth: 12 } }
+        }
+      }
+    });
+  }
+}
+
+// ── Recommendations ────────────────────────────────────────────────────────
+function setEnergyDir(dir, btn) {
+  state.energyDir = dir;
+  document.querySelectorAll('.dir-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+async function getRecommendations() {
+  const query = document.getElementById('rec-input').value.trim();
+  if (!query) return;
+
+  switchTab('recommendations', null);
+  const recResults = document.getElementById('rec-results');
+  recResults.innerHTML = '<div class="empty-state"><div class="typing-dots"><span></span><span></span><span></span></div></div>';
+
+  try {
+    const data = await api('/api/setlist/recommend', {
+      method: 'POST',
+      body: JSON.stringify({
+        track_title: query,
+        energy_direction: state.energyDir,
+        limit: 8,
+      }),
+    });
+
+    if (!data.length) {
+      recResults.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><h3>No results</h3><p>Couldn't find that track. Try a different name.</p></div>`;
+      return;
+    }
+
+    recResults.innerHTML = '';
+    data.forEach((rec, i) => {
+      const track = rec.track;
+      const energyClass = !track.energy ? 'mid'
+        : track.energy <= 4 ? 'low'
+        : track.energy <= 7 ? 'mid' : 'high';
+
+      const card = document.createElement('div');
+      card.className = 'rec-card';
+      card.innerHTML = `
+        <div class="rec-header">
+          <div>
+            <div class="rec-rank">#${i + 1}</div>
+            <div class="rec-title">${esc(track.title)}</div>
+            <div class="rec-artist">${esc(track.artist)}</div>
+          </div>
+          <div style="text-align:right; font-size:15px; font-weight:700; color:var(--accent)">${Math.round(rec.score * 100)}%</div>
+        </div>
+        <div class="rec-pills">
+          ${track.bpm > 0 ? `<span class="pill pill-bpm">${Math.round(track.bpm)}</span>` : ''}
+          ${track.key ? `<span class="pill pill-key">${esc(track.key)}</span>` : ''}
+          ${track.energy ? `<span class="pill pill-energy ${energyClass}">E${track.energy}</span>` : ''}
+          ${track.genre ? `<span class="pill" style="background:var(--surface3);color:var(--text-muted);border:1px solid var(--border);">${esc(track.genre)}</span>` : ''}
+        </div>
+        <div class="rec-score-bar">
+          <span class="score-label">Harmonic</span>
+          <div class="score-track"><div class="score-fill" style="width:${rec.harmonic_score * 100}%"></div></div>
+        </div>
+        <div class="rec-score-bar">
+          <span class="score-label">Energy</span>
+          <div class="score-track"><div class="score-fill" style="width:${rec.energy_score * 100}%;background:var(--yellow)"></div></div>
+        </div>
+        <div class="rec-score-bar">
+          <span class="score-label">BPM</span>
+          <div class="score-track"><div class="score-fill" style="width:${rec.bpm_score * 100}%;background:var(--blue)"></div></div>
+        </div>
+        <div class="rec-reason">${esc(rec.reason)}</div>
+      `;
+      recResults.appendChild(card);
+    });
+  } catch (e) {
+    recResults.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><h3>Error</h3><p>${esc(e.message)}</p></div>`;
+  }
+}
+
+// ── Export ─────────────────────────────────────────────────────────────────
+function showExportModal() {
+  if (!state.currentSetlist) return;
+  const now = new Date();
+  document.getElementById('export-name').value =
+    `AI Set – ${now.toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'})}`;
+  document.getElementById('export-modal').classList.add('show');
+}
+
+function hideExportModal() {
+  document.getElementById('export-modal').classList.remove('show');
+}
+
+async function exportSetlist() {
+  const name = document.getElementById('export-name').value.trim();
+  if (!name || !state.currentSetlist) return;
+
+  hideExportModal();
+  try {
+    const data = await api('/api/setlist/export', {
+      method: 'POST',
+      body: JSON.stringify({ setlist_id: state.currentSetlist.id, playlist_name: name }),
+    });
+    showToast(`✅ Playlist "${name}" created in Rekordbox (${data.track_count} tracks)!`, 'success');
+  } catch (e) {
+    showToast(`❌ Export failed: ${e.message}`, 'error');
+  }
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function showToast(msg, type = '') {
+  const container = document.getElementById('toasts');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+}
+
+// ── Utils ──────────────────────────────────────────────────────────────────
+function esc(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

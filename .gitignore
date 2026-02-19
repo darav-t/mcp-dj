@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables / secrets
+.env
+.env.local
+.env.*.local
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Claude Code local settings (contains machine-specific paths)
+.claude/settings.local.json
+
+# Rekordbox / Pioneer data (local DJ library - not for sharing)
+*.nml
+*.pdb
+
+# Mixed In Key data (personal music analysis)
+Library.csv
+
+# uv
+.python-version
+
+# Logs
+*.log
+logs/
+
+# Temporary / OS files
+*.tmp
+*.bak
+Thumbs.db
