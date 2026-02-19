@@ -216,6 +216,18 @@ class RekordboxDatabase:
         db_rating = getattr(content, "Rating", 0) or 0
         stars = RATING_TO_STARS.get(int(db_rating), 0)
 
+        # DateCreated is the user-visible "Date Added" shown in Rekordbox
+        date_added = str(getattr(content, "DateCreated", "") or "").strip() or None
+
+        # MyTagNames may contain duplicates (Rekordbox bug); deduplicate preserving order
+        raw_tags = getattr(content, "MyTagNames", []) or []
+        seen: set = set()
+        my_tags = []
+        for t in raw_tags:
+            if t and t not in seen:
+                seen.add(t)
+                my_tags.append(t)
+
         return TrackWithEnergy(
             id=str(content.ID),
             title=content.Title or "",
@@ -228,11 +240,12 @@ class RekordboxDatabase:
             play_count=int(getattr(content, "DJPlayCount", 0) or 0),
             length=int(getattr(content, "Length", 0) or 0),
             file_path=getattr(content, "FolderPath", "") or None,
-            date_added=str(getattr(content, "created_at", "") or "") or None,
+            date_added=date_added,
             date_modified=str(getattr(content, "StockDate", "") or "") or None,
             comments=getattr(content, "Commnt", "") or None,
             color=color_name,
             color_id=int(color_id),
+            my_tags=my_tags,
             energy=None,
             energy_source="none",
         )

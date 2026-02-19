@@ -5,7 +5,7 @@ Extends the VST Track model with setlist-specific types for harmonic mixing,
 energy planning, and AI-powered generation.
 """
 
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Set
 from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
@@ -43,11 +43,12 @@ class Track(BaseModel):
     play_count: int = Field(0, ge=0, description="Number of times played")
     length: int = Field(0, ge=0, description="Track length in seconds")
     file_path: Optional[str] = Field(None, description="Path to audio file")
-    date_added: Optional[str] = Field(None, description="Date track was added")
+    date_added: Optional[str] = Field(None, description="Date track was added to Rekordbox (YYYY-MM-DD)")
     date_modified: Optional[str] = Field(None, description="Date track was last modified")
     comments: Optional[str] = Field(None, description="Track comments")
     color: Optional[str] = Field(None, description="Color label name")
     color_id: Optional[int] = Field(None, description="Color label ID (0-8)")
+    my_tags: List[str] = Field(default_factory=list, description="Rekordbox 'My Tag' labels")
 
     def duration_formatted(self) -> str:
         if self.length <= 0:
