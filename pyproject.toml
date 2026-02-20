@@ -18,6 +18,13 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
 ]
+essentia = [
+    # Full TF model support (mood, genre, tags) — ~135MB
+    "essentia-tensorflow>=2.1b6.dev1389",
+]
+
+[project.scripts]
+analyze-track = "setlist_creator.essentia_analyzer:_cli_main"
 
 [build-system]
 requires = ["hatchling"]

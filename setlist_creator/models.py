@@ -66,6 +66,92 @@ class TrackWithEnergy(Track):
 
 
 # ---------------------------------------------------------------------------
+# Essentia audio analysis features
+# ---------------------------------------------------------------------------
+
+class EssentiaFeatures(BaseModel):
+    """
+    Audio features extracted by Essentia analysis.
+    Stored as a JSON cache entry at ~/.setlist_creator/essentia_cache/<sha256>.json
+    """
+
+    # Cache metadata
+    schema_version: int = Field(1, description="Cache schema version for future migrations")
+    file_path: str = Field(..., description="Absolute path to the analyzed audio file")
+    analyzed_at: str = Field(..., description="ISO-8601 UTC timestamp of analysis")
+    essentia_version: Optional[str] = Field(None, description="Essentia library version used")
+    analysis_duration_seconds: float = Field(0.0, description="Time taken to analyze in seconds")
+
+    # BPM / Rhythm
+    bpm_essentia: float = Field(0.0, description="BPM detected by Essentia RhythmExtractor2013")
+    bpm_confidence: float = Field(0.0, ge=0.0, description="Beat tracking confidence (raw Essentia value, typically 0-5+)")
+    beats_count: int = Field(0, description="Number of beats detected")
+
+    # Key / Harmony
+    key_essentia: Optional[str] = Field(
+        None, description="Camelot key detected by Essentia (e.g. '8A', '5B')"
+    )
+    key_name_raw: Optional[str] = Field(None, description="Raw key name from Essentia (e.g. 'C', 'F#')")
+    key_scale: Optional[str] = Field(None, description="Scale from Essentia: 'major' or 'minor'")
+    key_strength: float = Field(0.0, ge=0.0, le=1.0, description="Key detection confidence 0-1")
+
+    # Danceability
+    danceability: float = Field(0.0, ge=0.0, description="Danceability score (raw Essentia value, typically 0-3+)")
+    dfa: float = Field(0.0, description="Detrended Fluctuation Analysis exponent")
+
+    # Loudness / Energy
+    integrated_lufs: float = Field(0.0, description="EBU R128 integrated loudness in LUFS")
+    loudness_range_db: float = Field(0.0, description="EBU R128 loudness range in dB")
+    rms_db: float = Field(0.0, description="RMS loudness in dBFS (e.g. -10.2 dB)")
+    rms_energy: float = Field(0.0, ge=0.0, description="RMS signal energy (linear, 0-1)")
+
+    # Mood classifiers (0-1 probability, from VGGish + TensorFlow models)
+    mood_happy: Optional[float] = Field(None, ge=0.0, le=1.0, description="Happy mood probability 0-1")
+    mood_sad: Optional[float] = Field(None, ge=0.0, le=1.0, description="Sad mood probability 0-1")
+    mood_aggressive: Optional[float] = Field(None, ge=0.0, le=1.0, description="Aggressive mood probability 0-1")
+    mood_relaxed: Optional[float] = Field(None, ge=0.0, le=1.0, description="Relaxed mood probability 0-1")
+    mood_party: Optional[float] = Field(None, ge=0.0, le=1.0, description="Party mood probability 0-1")
+
+    # Genre classification (Discogs400 — top genres with confidence scores)
+    genre_discogs: Optional[dict] = Field(None, description="Top Discogs400 genres with confidence scores e.g. {'House': 0.54, 'Deep House': 0.13}")
+
+    # Music autotagging (MagnaTagATune — tags above threshold)
+    music_tags: Optional[list] = Field(None, description="MagnaTagATune tags above 0.1 threshold, sorted by score e.g. [{'tag': 'techno', 'score': 0.33}]")
+
+    def energy_as_1_to_10(self) -> int:
+        """Convert integrated LUFS loudness to 1-10 scale. -20 LUFS → 1, -3 LUFS → 10."""
+        lufs = max(-20.0, min(-3.0, self.integrated_lufs))
+        normalized = (lufs - (-20.0)) / 17.0
+        return max(1, min(10, round(1 + normalized * 9)))
+
+    def danceability_as_1_to_10(self) -> int:
+        """Convert Essentia danceability (0–3+ range) to 1-10 scale."""
+        # Essentia danceability: 0 = not danceable, ~3 = very danceable
+        normalized = min(1.0, self.danceability / 3.0)
+        return max(1, min(10, round(1 + normalized * 9)))
+
+    def dominant_mood(self) -> Optional[str]:
+        """Return the highest-scoring mood label, or None if no mood data."""
+        moods = {
+            "happy": self.mood_happy,
+            "sad": self.mood_sad,
+            "aggressive": self.mood_aggressive,
+            "relaxed": self.mood_relaxed,
+            "party": self.mood_party,
+        }
+        available = {k: v for k, v in moods.items() if v is not None}
+        if not available:
+            return None
+        return max(available, key=lambda k: available[k])
+
+    def top_genre(self) -> Optional[str]:
+        """Return the single highest-confidence Discogs genre, or None."""
+        if not self.genre_discogs:
+            return None
+        return max(self.genre_discogs, key=lambda g: self.genre_discogs[g])
+
+
+# ---------------------------------------------------------------------------
 # Setlist models
 # ---------------------------------------------------------------------------
 
