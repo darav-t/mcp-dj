@@ -340,11 +340,114 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 9. Analyze Rekordbox library (only if essentia was installed)
+# 9. Register MCP server in Claude Desktop
+# -----------------------------------------------------------------------------
+
+header "Step 9 — Register MCP server in Claude Desktop"
+divider
+
+CLAUDE_DESKTOP_CONFIG=""
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  CLAUDE_DESKTOP_CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || -n "${WINDIR:-}" ]]; then
+  CLAUDE_DESKTOP_CONFIG="${APPDATA:-$HOME/AppData/Roaming}/Claude/claude_desktop_config.json"
+fi
+
+if [ -z "$CLAUDE_DESKTOP_CONFIG" ]; then
+  warn "Skipping Claude Desktop registration (unsupported OS: $OSTYPE)"
+else
+  CLAUDE_DESKTOP_DIR="$(dirname "$CLAUDE_DESKTOP_CONFIG")"
+  mkdir -p "$CLAUDE_DESKTOP_DIR"
+
+  # Check if already registered
+  if [ -f "$CLAUDE_DESKTOP_CONFIG" ] && python3 - "$CLAUDE_DESKTOP_CONFIG" <<'PYEOF' 2>/dev/null
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    sys.exit(0 if 'mcp-dj' in d.get('mcpServers', {}) else 1)
+except Exception:
+    sys.exit(1)
+PYEOF
+  then
+    info "MCP server 'mcp-dj' already in Claude Desktop config"
+  else
+    # Build env block from .env (only non-empty values)
+    MCP_ENV_JSON="{}"
+    if [ -f "$ENV_FILE" ]; then
+      MCP_ENV_JSON=$(python3 - "$ENV_FILE" <<'PYEOF' 2>/dev/null
+import re, json, sys
+env = {}
+try:
+    for line in open(sys.argv[1]):
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        m = re.match(r'^([A-Z_][A-Z0-9_]*)=(.*)$', line)
+        if m:
+            key = m.group(1)
+            val = m.group(2).strip('"').strip("'")
+            if val:
+                env[key] = val
+except Exception:
+    pass
+print(json.dumps(env))
+PYEOF
+      ) || MCP_ENV_JSON="{}"
+    fi
+
+    # Merge mcp-dj entry into the Claude Desktop config
+    python3 - "$CLAUDE_DESKTOP_CONFIG" "$SCRIPT_DIR" "$MCP_ENV_JSON" <<'PYEOF'
+import json, sys, os
+config_path, project_dir, env_json = sys.argv[1], sys.argv[2], sys.argv[3]
+
+config = {}
+if os.path.exists(config_path):
+    try:
+        with open(config_path) as f:
+            config = json.load(f)
+    except Exception:
+        pass
+
+if 'mcpServers' not in config:
+    config['mcpServers'] = {}
+
+try:
+    env = json.loads(env_json)
+except Exception:
+    env = {}
+
+entry = {
+    "command": "uv",
+    "args": ["run", "--project", project_dir, "python", "-m", "mcp_dj.mcp_server"]
+}
+if env:
+    entry["env"] = env
+
+config['mcpServers']['mcp-dj'] = entry
+
+with open(config_path, 'w') as f:
+    json.dump(config, f, indent=2)
+    f.write('\n')
+PYEOF
+
+    if [ $? -eq 0 ]; then
+      info "MCP server 'mcp-dj' added to Claude Desktop config"
+      echo "  Config: $CLAUDE_DESKTOP_CONFIG"
+      echo "  Restart Claude Desktop to load the new server."
+    else
+      warn "Failed to update Claude Desktop config automatically."
+      warn "Add manually to: $CLAUDE_DESKTOP_CONFIG"
+      echo "  See: $SCRIPT_DIR/claude_desktop_config.json for the entry to add."
+    fi
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# 10. Analyze Rekordbox library (only if essentia was installed)
 # -----------------------------------------------------------------------------
 
 if [ "$INSTALL_ESSENTIA" = true ]; then
-  header "Step 9 — Analyze Rekordbox library"
+  header "Step 10 — Analyze Rekordbox library"
   divider
   echo "  Essentia can now analyze every song in your Rekordbox library."
   echo "  This extracts BPM, key, mood, genre, and tags for all your tracks,"
