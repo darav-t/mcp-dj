@@ -10,9 +10,9 @@ echo "   Connect from Claude Desktop using config below:"
 echo ""
 echo '  "dj-setlist-creator": {'
 echo '    "command": "uv",'
-echo "    \"args\": [\"run\", \"--project\", \"$SCRIPT_DIR\", \"python\", \"-m\", \"setlist_creator.mcp_server\"]"
+echo "    \"args\": [\"run\", \"--project\", \"$SCRIPT_DIR\", \"python\", \"-m\", \"mcp_dj.mcp_server\"]"
 echo '  }'
 echo ""
 
 uv sync --quiet 2>/dev/null || true
-uv run python -m setlist_creator.mcp_server
+uv run python -m mcp_dj.mcp_server

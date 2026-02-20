@@ -559,9 +559,9 @@ def _cli_main() -> None:
     """CLI entry point for analyzing a single audio file.
 
     Usage:
-        python -m setlist_creator.analyze_track /path/to/song.mp3
-        python -m setlist_creator.analyze_track /path/to/song.mp3 --force
-        python -m setlist_creator.analyze_track /path/to/song.mp3 --output json
+        python -m mcp_dj.analyze_track /path/to/song.mp3
+        python -m mcp_dj.analyze_track /path/to/song.mp3 --force
+        python -m mcp_dj.analyze_track /path/to/song.mp3 --output json
         analyze-track /path/to/song.mp3  (if installed via uv)
     """
     parser = argparse.ArgumentParser(

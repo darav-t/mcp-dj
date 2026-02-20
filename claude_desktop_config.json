@@ -12,7 +12,7 @@
         "/path/to/set_list_creator",
         "python",
         "-m",
-        "setlist_creator.mcp_server"
+        "mcp_dj.mcp_server"
       ],
       "env": {
         "ANTHROPIC_API_KEY": "sk-ant-...",

@@ -1,5 +1,5 @@
 [project]
-name = "setlist-creator"
+name = "mcp-dj"
 version = "1.0.0"
 description = "AI-powered DJ Setlist Creator with harmonic mixing and energy planning"
 requires-python = ">=3.12"
@@ -24,7 +24,7 @@ essentia = [
 ]
 
 [project.scripts]
-analyze-track = "setlist_creator.essentia_analyzer:_cli_main"
+analyze-track = "mcp_dj.essentia_analyzer:_cli_main"
 
 [build-system]
 requires = ["hatchling"]

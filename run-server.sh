@@ -20,4 +20,4 @@ echo ""
 # Install deps if needed
 uv sync --quiet 2>/dev/null || true
 
-SETLIST_PORT=$PORT uv run python -m setlist_creator.app
+SETLIST_PORT=$PORT uv run python -m mcp_dj.app

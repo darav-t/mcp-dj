@@ -1,7 +1,7 @@
 """Unit tests for the Energy Arc Planner."""
 
 import pytest
-from setlist_creator.energy_planner import EnergyPlanner, ENERGY_PROFILES
+from mcp_dj.energy_planner import EnergyPlanner, ENERGY_PROFILES
 
 
 @pytest.fixture

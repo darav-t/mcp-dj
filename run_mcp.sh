@@ -5,4 +5,4 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-exec "$SCRIPT_DIR/.venv/bin/python3" -m setlist_creator.mcp_server
+exec "$SCRIPT_DIR/.venv/bin/python3" -m mcp_dj.mcp_server

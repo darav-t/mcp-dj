@@ -23,6 +23,12 @@ from .models import (
 from .camelot import CamelotWheel
 from .energy_planner import EnergyPlanner
 
+# Optional — only present when essentia_analyzer is importable
+try:
+    from .essentia_analyzer import EssentiaFeatureStore
+except ImportError:
+    EssentiaFeatureStore = None
+
 
 class SetlistEngine:
     """
@@ -35,10 +41,12 @@ class SetlistEngine:
         tracks: Optional[List[TrackWithEnergy]] = None,
         camelot: Optional[CamelotWheel] = None,
         energy_planner: Optional[EnergyPlanner] = None,
+        essentia_store=None,
     ):
         self.camelot = camelot or CamelotWheel()
         self.planner = energy_planner or EnergyPlanner()
         self.tracks: List[TrackWithEnergy] = []
+        self.essentia_store = essentia_store  # EssentiaFeatureStore or None
 
         # Indices for fast lookup
         self.by_key: Dict[str, List[TrackWithEnergy]] = defaultdict(list)
@@ -236,6 +244,9 @@ class SetlistEngine:
         elif energy_direction == "down":
             target_energy = max(1, target_energy - 2)
 
+        # Essentia features for the current track
+        ess_current = self.essentia_store.get(current.file_path) if self.essentia_store else None
+
         # Score candidates
         scored = []
         for candidate in self.tracks:
@@ -246,16 +257,48 @@ class SetlistEngine:
                 current.key or "", candidate.key or ""
             )
 
-            # BPM score
-            bpm_score = self._bpm_score(current.bpm, candidate.bpm)
+            # Essentia features for candidate
+            ess = self.essentia_store.get(candidate.file_path) if self.essentia_store else None
+
+            # Effective energy: use essentia loudness-derived energy when available
+            if ess is not None:
+                cand_energy = ess.energy_as_1_to_10()
+            else:
+                cand_energy = candidate.energy or 5
+
+            # BPM score — prefer essentia BPM (more accurate)
+            candidate_bpm = ess.bpm_essentia if (ess and ess.bpm_essentia > 0) else candidate.bpm
+            current_bpm = ess_current.bpm_essentia if (ess_current and ess_current.bpm_essentia > 0) else current.bpm
+            bpm_score = self._bpm_score(current_bpm, candidate_bpm)
 
             # Energy score: how close to desired direction
-            cand_energy = candidate.energy or 5
             energy_diff = abs(cand_energy - target_energy)
             energy_score = max(0.0, 1.0 - (energy_diff / 5.0))
 
-            # Genre score
+            # Danceability bonus from essentia
+            danceability_bonus = 0.0
+            if ess is not None:
+                d_score = ess.danceability_as_1_to_10() / 10.0
+                danceability_bonus = 0.03 * d_score
+
+            # Mood bonus: reward tracks whose mood fits the energy direction
+            mood_bonus = 0.0
+            if ess is not None:
+                if energy_direction == "up":
+                    mood_bonus = 0.03 * max(
+                        ess.mood_party or 0.0,
+                        ess.mood_aggressive or 0.0,
+                        ess.mood_happy or 0.0,
+                    )
+                elif energy_direction == "down":
+                    mood_bonus = 0.03 * (ess.mood_relaxed or 0.0)
+
+            # Genre score — blend Rekordbox + Discogs genre when available
             genre_score = self._genre_score(current.genre, candidate.genre)
+            if ess is not None and ess_current is not None:
+                discogs_score = self._discogs_genre_score(ess_current.genre_discogs, ess.genre_discogs)
+                if discogs_score is not None:
+                    genre_score = 0.6 * genre_score + 0.4 * discogs_score
 
             # Combined score
             total = (
@@ -263,11 +306,13 @@ class SetlistEngine:
                 + 0.30 * energy_score
                 + 0.20 * bpm_score
                 + 0.15 * genre_score
+                + danceability_bonus
+                + mood_bonus
             )
 
             reason = self._build_reason(
                 candidate, current, h_score, rel, energy_score,
-                bpm_score, energy_direction
+                bpm_score, energy_direction, ess
             )
 
             scored.append(NextTrackRecommendation(
@@ -301,37 +346,80 @@ class SetlistEngine:
         """
         Score a candidate track. Returns (total_score, harmonic_score, key_relation).
 
-        Weights:
+        Weights (without essentia):
           harmonic:  0.35
           energy:    0.30
           bpm:       0.15
           genre:     0.10
           diversity: 0.05
           quality:   0.05
+
+        When essentia cache is available, danceability and mood are folded into
+        the energy score and a small bonus is added for Discogs genre matching.
         """
         # Harmonic score
         h_score, rel = self.camelot.transition_score(
             current_track.key or "", candidate.key or ""
         )
 
-        # Energy score
-        cand_energy = candidate.energy or 5
+        # Essentia features for candidate (and current track for context)
+        ess = self.essentia_store.get(candidate.file_path) if self.essentia_store else None
+        ess_current = self.essentia_store.get(current_track.file_path) if self.essentia_store else None
+
+        # Effective energy: essentia loudness-derived energy takes priority if available
+        if ess is not None:
+            cand_energy = ess.energy_as_1_to_10()
+        else:
+            cand_energy = candidate.energy or 5
+
+        # Energy score (how well the candidate fits the energy arc at this position)
         energy_score = self.planner.score_energy_placement(
             cand_energy, position_pct, profile, prev_energy, prev_prev_energy
         )
 
-        # BPM score
-        bpm_score = self._bpm_score(current_track.bpm, candidate.bpm)
+        # Danceability bonus from essentia (0.0–1.0 → small boost)
+        danceability_bonus = 0.0
+        if ess is not None:
+            # High danceability tracks score better for party/peak profiles
+            d_score = ess.danceability_as_1_to_10() / 10.0
+            if profile in ("peak", "build", "wave"):
+                danceability_bonus = 0.05 * d_score
+            else:
+                danceability_bonus = 0.02 * d_score
 
-        # Genre score
+        # Mood compatibility bonus: prefer energetic moods at peak positions
+        mood_bonus = 0.0
+        if ess is not None:
+            target_energy_level = self.planner.get_target_energy(position_pct, profile)
+            if target_energy_level >= 7:
+                # High-energy section: prefer party/aggressive moods
+                mood_bonus = 0.03 * max(
+                    ess.mood_party or 0.0,
+                    ess.mood_aggressive or 0.0,
+                    ess.mood_happy or 0.0,
+                )
+            elif target_energy_level <= 4:
+                # Low-energy section: prefer relaxed mood
+                mood_bonus = 0.03 * (ess.mood_relaxed or 0.0)
+
+        # BPM score — use essentia BPM if available (more accurate than Rekordbox)
+        candidate_bpm = ess.bpm_essentia if (ess and ess.bpm_essentia > 0) else candidate.bpm
+        current_bpm = ess_current.bpm_essentia if (ess_current and ess_current.bpm_essentia > 0) else current_track.bpm
+        bpm_score = self._bpm_score(current_bpm, candidate_bpm)
+
+        # Genre score — augment with Discogs genre data when available
         genre_score = self._genre_score(current_track.genre, candidate.genre)
+        if ess is not None and ess_current is not None:
+            discogs_score = self._discogs_genre_score(ess_current.genre_discogs, ess.genre_discogs)
+            if discogs_score is not None:
+                # Blend: 60% Rekordbox genre, 40% Discogs
+                genre_score = 0.6 * genre_score + 0.4 * discogs_score
 
         # Diversity penalty
         diversity = 1.0
         if candidate.artist in recent_artists:
             diversity *= 0.5
         if (candidate.genre or "").lower() in [g.lower() for g in recent_genres[-3:]]:
-            # Same genre in last 3 is ok but slightly penalized for variety
             diversity *= 0.9
 
         # Quality bonus (rating + play count)
@@ -350,6 +438,8 @@ class SetlistEngine:
             + 0.10 * genre_score
             + 0.05 * diversity
             + 0.05 * quality
+            + danceability_bonus
+            + mood_bonus
         )
 
         return (total, h_score, rel)
@@ -375,6 +465,31 @@ class SetlistEngine:
         if c_words & t_words:
             return 0.7
         return 0.2
+
+    @staticmethod
+    def _discogs_genre_score(
+        current_discogs: Optional[dict],
+        candidate_discogs: Optional[dict],
+    ) -> Optional[float]:
+        """Score Discogs genre overlap between two tracks using weighted cosine similarity.
+
+        Returns a score in [0, 1] or None if either track lacks Discogs data.
+        """
+        if not current_discogs or not candidate_discogs:
+            return None
+
+        common_genres = set(current_discogs) & set(candidate_discogs)
+        if not common_genres:
+            return 0.1  # Different genre space
+
+        # Dot product of the two genre vectors over shared genres
+        dot = sum(current_discogs[g] * candidate_discogs[g] for g in common_genres)
+        mag_a = sum(v ** 2 for v in current_discogs.values()) ** 0.5
+        mag_b = sum(v ** 2 for v in candidate_discogs.values()) ** 0.5
+
+        if mag_a == 0 or mag_b == 0:
+            return None
+        return min(1.0, dot / (mag_a * mag_b))
 
     def _avg_track_length(self) -> float:
         """Average track length in seconds across the library."""
@@ -510,6 +625,7 @@ class SetlistEngine:
         energy_score: float,
         bpm_score: float,
         energy_direction: str,
+        ess=None,  # Optional EssentiaFeatures for the candidate
     ) -> str:
         """Build a human-readable recommendation reason."""
         parts = []
@@ -521,9 +637,11 @@ class SetlistEngine:
         elif h_score >= 0.3:
             parts.append(f"Acceptable key transition ({rel})")
 
-        if energy_direction == "up" and (candidate.energy or 5) > (current.energy or 5):
+        cand_energy = ess.energy_as_1_to_10() if ess else (candidate.energy or 5)
+        curr_energy = current.energy or 5
+        if energy_direction == "up" and cand_energy > curr_energy:
             parts.append("Raises energy as requested")
-        elif energy_direction == "down" and (candidate.energy or 5) < (current.energy or 5):
+        elif energy_direction == "down" and cand_energy < curr_energy:
             parts.append("Lowers energy as requested")
 
         if bpm_score >= 0.9:
@@ -533,6 +651,18 @@ class SetlistEngine:
 
         if candidate.genre and current.genre and candidate.genre.lower() == current.genre.lower():
             parts.append(f"Same genre ({candidate.genre})")
+
+        # Essentia-enriched reason snippets
+        if ess is not None:
+            mood = ess.dominant_mood()
+            if mood:
+                parts.append(f"Mood: {mood}")
+            top_genre = ess.top_genre()
+            if top_genre and (not candidate.genre or top_genre.lower() not in candidate.genre.lower()):
+                parts.append(f"Discogs: {top_genre}")
+            d_score = ess.danceability_as_1_to_10()
+            if d_score >= 8:
+                parts.append(f"High danceability ({d_score}/10)")
 
         return ". ".join(parts) if parts else "Compatible track"
 

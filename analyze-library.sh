@@ -12,4 +12,4 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-exec uv run python -m setlist_creator.analyze_library "$@"
+exec uv run python -m mcp_dj.analyze_library "$@"

@@ -253,7 +253,7 @@ def main():
     port = int(os.environ.get("SETLIST_PORT", "8888"))
     logger.info(f"Starting DJ Setlist Creator on port {port}")
     uvicorn.run(
-        "setlist_creator.app:app",
+        "mcp_dj.app:app",
         host="0.0.0.0",
         port=port,
         reload=False,

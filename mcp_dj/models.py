@@ -72,7 +72,7 @@ class TrackWithEnergy(Track):
 class EssentiaFeatures(BaseModel):
     """
     Audio features extracted by Essentia analysis.
-    Stored as a JSON cache entry at ~/.setlist_creator/essentia_cache/<sha256>.json
+    Stored as a JSON cache entry at .data/essentia_cache/<sha256>.json
     """
 
     # Identity

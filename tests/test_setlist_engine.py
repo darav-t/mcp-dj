@@ -1,10 +1,10 @@
 """Unit tests for the Setlist Engine."""
 
 import pytest
-from setlist_creator.models import TrackWithEnergy, SetlistRequest
-from setlist_creator.setlist_engine import SetlistEngine
-from setlist_creator.camelot import CamelotWheel
-from setlist_creator.energy_planner import EnergyPlanner
+from mcp_dj.models import TrackWithEnergy, SetlistRequest
+from mcp_dj.setlist_engine import SetlistEngine
+from mcp_dj.camelot import CamelotWheel
+from mcp_dj.energy_planner import EnergyPlanner
 
 
 def make_track(id, title, bpm=128.0, key="8A", energy=6, genre="Tech House",

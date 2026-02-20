@@ -163,7 +163,7 @@ Or run the MCP server manually:
 
 ```
 dj-setlist-creator-mcp/
-├── setlist_creator/
+├── mcp_dj/
 │   ├── app.py            # FastAPI web application
 │   ├── mcp_server.py     # FastMCP server for Claude Desktop
 │   ├── models.py         # Pydantic data models

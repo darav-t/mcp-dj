@@ -1,7 +1,7 @@
 """Unit tests for the Camelot wheel harmonic mixing engine."""
 
 import pytest
-from setlist_creator.camelot import CamelotWheel
+from mcp_dj.camelot import CamelotWheel
 
 
 @pytest.fixture
@@ -112,7 +112,7 @@ class TestGetCompatibleKeys:
 
 class TestFindCompatibleTracks:
     def test_filters_by_key(self, camelot):
-        from setlist_creator.models import TrackWithEnergy
+        from mcp_dj.models import TrackWithEnergy
         tracks = [
             TrackWithEnergy(id="1", title="A", artist="X", bpm=128, key="8A"),
             TrackWithEnergy(id="2", title="B", artist="Y", bpm=128, key="9A"),  # adjacent
@@ -125,7 +125,7 @@ class TestFindCompatibleTracks:
         assert "3" not in ids
 
     def test_sorted_by_score(self, camelot):
-        from setlist_creator.models import TrackWithEnergy
+        from mcp_dj.models import TrackWithEnergy
         tracks = [
             TrackWithEnergy(id="1", title="A", artist="X", bpm=128, key="9A"),  # 0.9
             TrackWithEnergy(id="2", title="B", artist="Y", bpm=128, key="8A"),  # 1.0

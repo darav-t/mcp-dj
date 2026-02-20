@@ -1,10 +1,10 @@
 """Tests for date_added and my_tags filtering in search_library and library summary."""
 
 import pytest
-from setlist_creator.models import TrackWithEnergy
-from setlist_creator.setlist_engine import SetlistEngine
-from setlist_creator.camelot import CamelotWheel
-from setlist_creator.energy_planner import EnergyPlanner
+from mcp_dj.models import TrackWithEnergy
+from mcp_dj.setlist_engine import SetlistEngine
+from mcp_dj.camelot import CamelotWheel
+from mcp_dj.energy_planner import EnergyPlanner
 
 
 def make_track(id, title, date_added=None, my_tags=None, genre="Tech House",
