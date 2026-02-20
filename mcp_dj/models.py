@@ -1,5 +1,5 @@
 """
-Data Models for DJ Setlist Creator
+Data Models for MCP DJ
 
 Extends the VST Track model with setlist-specific types for harmonic mixing,
 energy planning, and AI-powered generation.

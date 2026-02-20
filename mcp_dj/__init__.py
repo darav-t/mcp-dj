@@ -1,3 +1,3 @@
-"""AI-powered DJ Setlist Creator with harmonic mixing and energy planning."""
+"""AI-powered MCP DJ with harmonic mixing and energy planning."""
 
 __version__ = "1.0.0"

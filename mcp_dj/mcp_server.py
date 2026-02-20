@@ -53,7 +53,7 @@ except ImportError:
 # Global state
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP("DJ Setlist Creator")
+mcp = FastMCP("MCP DJ")
 
 db: Optional[RekordboxDatabase] = None
 engine: Optional[SetlistEngine] = None
@@ -1364,7 +1364,7 @@ def main():
     parser.add_argument("--ssl-keyfile", default=None)
     args = parser.parse_args()
 
-    logger.info("Starting DJ Setlist Creator MCP Server...")
+    logger.info("Starting MCP DJ MCP Server...")
 
     if args.transport == "sse":
         uvicorn_config = {}

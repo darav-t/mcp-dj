@@ -1,5 +1,5 @@
 """
-FastAPI Web Application for DJ Setlist Creator
+FastAPI Web Application for MCP DJ
 
 Endpoints:
   GET  /                          - Serve the chat UI
@@ -86,7 +86,7 @@ async def lifespan(app_instance: FastAPI):
     await db.disconnect()
 
 
-app = FastAPI(title="DJ Setlist Creator", lifespan=lifespan)
+app = FastAPI(title="MCP DJ", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -251,7 +251,7 @@ async def export_to_rekordbox(body: ExportRequest):
 
 def main():
     port = int(os.environ.get("SETLIST_PORT", "8888"))
-    logger.info(f"Starting DJ Setlist Creator on port {port}")
+    logger.info(f"Starting MCP DJ on port {port}")
     uvicorn.run(
         "mcp_dj.app:app",
         host="0.0.0.0",

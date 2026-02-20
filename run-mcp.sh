@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Run the DJ Setlist Creator MCP server for Claude Desktop
+# Run the MCP DJ MCP server for Claude Desktop
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo "🔌 Starting DJ Setlist Creator MCP Server..."
+echo "🔌 Starting MCP DJ MCP Server..."
 echo "   Connect from Claude Desktop using config below:"
 echo ""
 echo '  "dj-setlist-creator": {'

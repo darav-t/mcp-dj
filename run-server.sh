@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the DJ Setlist Creator web server
+# Run the MCP DJ web server
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -13,7 +13,7 @@ if [ -z "$ANTHROPIC_API_KEY" ]; then
 fi
 
 PORT="${SETLIST_PORT:-8888}"
-echo "🎛️  Starting DJ Setlist Creator on http://localhost:$PORT"
+echo "🎛️  Starting MCP DJ on http://localhost:$PORT"
 echo "   Press Ctrl+C to stop."
 echo ""
 

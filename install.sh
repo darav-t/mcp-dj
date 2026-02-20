@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# DJ Setlist Creator — Install Script
+# MCP DJ — Install Script
 # =============================================================================
 # Installs everything needed to run the project:
 #   1. uv          — Python package manager

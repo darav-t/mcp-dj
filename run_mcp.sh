@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the DJ Setlist Creator MCP server (direct venv invocation)
+# Run the MCP DJ MCP server (direct venv invocation)
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
