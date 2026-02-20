@@ -287,10 +287,57 @@ EOF
 fi
 
 # -----------------------------------------------------------------------------
-# 8. .data/ directory
+# .data/ directory (internal, no prompt)
 # -----------------------------------------------------------------------------
 
 mkdir -p "$SCRIPT_DIR/.data/models" "$SCRIPT_DIR/.data/essentia_cache"
+
+# -----------------------------------------------------------------------------
+# 8. Register MCP server in Claude Code / Codex
+# -----------------------------------------------------------------------------
+
+header "Step 8 — Register MCP server in Claude Code"
+divider
+
+if command -v claude &>/dev/null; then
+  if claude mcp get mcp-dj &>/dev/null 2>&1; then
+    info "MCP server 'mcp-dj' already registered in Claude Code"
+  else
+    echo "  Registering 'mcp-dj' MCP server in Claude Code..."
+    echo ""
+
+    # Pick up ANTHROPIC_API_KEY from .env if it looks real
+    MCP_ENV_ARGS=()
+    if [ -f "$ENV_FILE" ]; then
+      STORED_KEY=$(grep -E '^ANTHROPIC_API_KEY=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' | tr -d "'")
+      if [ -n "$STORED_KEY" ] && [[ "$STORED_KEY" == sk-ant-* ]]; then
+        MCP_ENV_ARGS+=(-e "ANTHROPIC_API_KEY=$STORED_KEY")
+      fi
+    fi
+
+    read -r -p "  Register for all Claude Code projects (user) or this project only (local)? [U/l] " SCOPE_REPLY
+    SCOPE_REPLY="${SCOPE_REPLY:-U}"
+    if [[ "$SCOPE_REPLY" =~ ^[Ll]$ ]]; then
+      MCP_SCOPE="local"
+    else
+      MCP_SCOPE="user"
+    fi
+
+    if claude mcp add "${MCP_ENV_ARGS[@]}" -s "$MCP_SCOPE" mcp-dj -- \
+        uv run --project "$SCRIPT_DIR" python -m mcp_dj.mcp_server; then
+      info "MCP server registered in Claude Code (scope: $MCP_SCOPE)"
+    else
+      warn "Automatic registration failed — add it manually:"
+      warn "  claude mcp add -s user mcp-dj -- uv run --project \"$SCRIPT_DIR\" python -m mcp_dj.mcp_server"
+    fi
+  fi
+else
+  warn "Claude Code CLI not found — skipping automatic MCP registration"
+  echo "  Install Claude Code: https://claude.ai/download"
+  echo "  Then register manually:"
+  echo "    claude mcp add -s user mcp-dj -- \\"
+  echo "      uv run --project \"$SCRIPT_DIR\" python -m mcp_dj.mcp_server"
+fi
 
 # -----------------------------------------------------------------------------
 # 9. Analyze Rekordbox library (only if essentia was installed)
@@ -338,10 +385,10 @@ import json, sys
 try:
     d = json.load(open('$SCRIPT_DIR/claude_desktop_config.json'))
     k = list(d.get('mcpServers', {}).keys())
-    print(k[0] if k else 'dj-setlist-creator')
+    print(k[0] if k else 'mcp-dj')
 except:
-    print('dj-setlist-creator')
-" 2>/dev/null || echo "dj-setlist-creator")
+    print('mcp-dj')
+" 2>/dev/null || echo "mcp-dj")
 
 echo "  1. Add your Anthropic API key to .env:"
 echo "       ANTHROPIC_API_KEY=sk-ant-..."
@@ -353,6 +400,9 @@ echo ""
 echo "  3. Connect to Claude Desktop (add to claude_desktop_config.json):"
 echo "       Server name: $MCP_NAME"
 echo "       See: claude_desktop_config.json"
+echo ""
+echo "     Or register in Claude Code (if not already done during install):"
+echo "       claude mcp add -s user $MCP_NAME -- uv run --project \"$SCRIPT_DIR\" python -m mcp_dj.mcp_server"
 echo ""
 
 if [ "$INSTALL_ESSENTIA" = true ]; then
