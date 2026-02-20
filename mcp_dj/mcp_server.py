@@ -4,7 +4,7 @@ FastMCP Server for Claude Desktop Integration
 Provides tools for generating setlists, recommending tracks, and analyzing
 harmonic compatibility — callable directly from Claude Desktop.
 
-To connect to Claude Desktop, add to claude_desktop_config.json:
+To connect to Claude Desktop (stdio), add to claude_desktop_config.json:
 {
   "mcpServers": {
     "mcp-dj": {
@@ -14,6 +14,11 @@ To connect to Claude Desktop, add to claude_desktop_config.json:
     }
   }
 }
+
+To run over HTTP (SSE) for remote or multi-client access:
+  python -m mcp_dj.mcp_server --transport sse [--host 127.0.0.1] [--port 8000]
+  # Or: ./run-mcp-http.sh
+  # MCP endpoint: http://<host>:<port>/mcp
 """
 
 import asyncio
@@ -93,6 +98,166 @@ async def _ensure_initialized():
     )
     _initialized = True
     logger.info(f"MCP server ready with {len(all_tracks)} tracks")
+
+
+# ---------------------------------------------------------------------------
+# Vibe → SetlistRequest interpreter
+# ---------------------------------------------------------------------------
+
+# (keyword, genre, bpm_min, bpm_max, display_label)
+# Checked in order — most specific entries first.
+_VIBE_PROFILES = [
+    ("après ski",    "tech house",     122, 128, "Après Ski"),
+    ("apres ski",    "tech house",     122, 128, "Après Ski"),
+    ("après-ski",    "tech house",     122, 128, "Après Ski"),
+    ("ski chalet",   "tech house",     122, 128, "Alpine Chalet"),
+    ("chalet",       "tech house",     122, 128, "Alpine Chalet"),
+    ("ski",          "tech house",     122, 128, "Après Ski"),
+    ("after party",  "techno",         130, 140, "After Party"),
+    ("afterparty",   "techno",         130, 140, "After Party"),
+    ("warehouse",    "techno",         130, 138, "Warehouse Rave"),
+    ("underground",  "techno",         128, 136, "Underground"),
+    ("industrial",   "techno",         132, 140, "Industrial"),
+    ("sunrise",      "melodic techno", 118, 124, "Sunrise"),
+    ("rooftop",      "melodic house",  120, 126, "Rooftop"),
+    ("sundowner",    "melodic house",  118, 125, "Sundowner"),
+    ("sunset",       "melodic house",  118, 126, "Sunset"),
+    ("pool party",   "house",          120, 128, "Pool Party"),
+    ("pool",         "house",          120, 128, "Pool Party"),
+    ("beach",        "house",          120, 128, "Beach"),
+    ("main stage",   "tech house",     128, 135, "Main Stage"),
+    ("mainstage",    "tech house",     128, 135, "Main Stage"),
+    ("festival",     "tech house",     126, 132, "Festival"),
+    ("nightclub",    "tech house",     126, 132, "Nightclub"),
+    ("club",         "tech house",     126, 132, "Club"),
+    ("lounge",       "deep house",     115, 122, "Lounge"),
+    ("bar",          "house",          118, 126, "Bar"),
+    ("deep house",   "deep house",     115, 122, "Deep House"),
+    ("deep",         "deep house",     115, 122, "Deep House"),
+    ("melodic",      "melodic techno", 120, 128, "Melodic"),
+    ("techno",       "techno",         128, 138, "Techno"),
+    ("tech house",   "tech house",     124, 132, "Tech House"),
+    ("house",        "house",          120, 128, "House"),
+]
+
+# (keyword, energy_profile) — checked against situation + vibe + venue combined
+_SITUATION_TO_PROFILE = [
+    ("warm-up",     "journey"),
+    ("warm up",     "journey"),
+    ("warmup",      "journey"),
+    ("opening",     "build"),
+    ("peak time",   "peak"),
+    ("peak",        "peak"),
+    ("headline",    "peak"),
+    ("main slot",   "peak"),
+    ("closing",     "wave"),
+    ("close out",   "wave"),
+    ("after party", "build"),
+    ("afterparty",  "build"),
+    ("sunrise",     "chill"),
+    ("ambient",     "chill"),
+    ("background",  "chill"),
+    ("chill",       "chill"),
+]
+
+# (keyword, energy_profile) — checked against time_of_day
+_TIME_TO_PROFILE = [
+    ("sunrise",    "chill"),
+    ("dawn",       "chill"),
+    ("morning",    "chill"),
+    ("afternoon",  "journey"),
+    ("evening",    "build"),
+    ("late night", "wave"),
+    ("midnight",   "wave"),
+    ("night",      "peak"),
+]
+
+# (keyword, bpm_delta) — crowd energy adjusts BPM range up or down
+_CROWD_BPM_DELTA = [
+    ("hyped",    +2),
+    ("intense",  +3),
+    ("clubbers", +2),
+    ("casual",   -2),
+    ("relaxed",  -3),
+    ("sleepy",   -4),
+]
+
+
+def _interpret_vibe(
+    vibe: str = "",
+    situation: str = "",
+    venue: str = "",
+    crowd_energy: str = "",
+    time_of_day: str = "",
+    genre_preference: str = "",
+) -> Dict[str, Any]:
+    """Translate freeform DJ context into SetlistRequest parameters."""
+    combined = " ".join([vibe, venue, situation, crowd_energy, time_of_day]).lower()
+
+    # 1. Genre + BPM from vibe/venue keywords
+    genre: Optional[str] = None
+    bpm_min = 124.0
+    bpm_max = 130.0
+    vibe_label = "General"
+
+    if genre_preference:
+        genre = genre_preference
+        for _, g, mn, mx, lbl in _VIBE_PROFILES:
+            if g.lower() == genre_preference.lower():
+                bpm_min, bpm_max = float(mn), float(mx)
+                vibe_label = lbl
+                break
+    else:
+        for keyword, g, mn, mx, lbl in _VIBE_PROFILES:
+            if keyword in combined:
+                genre = g
+                bpm_min, bpm_max = float(mn), float(mx)
+                vibe_label = lbl
+                break
+
+    # 2. Energy profile from situation, then time of day
+    energy_profile = None
+    situation_text = " ".join([situation, vibe, venue]).lower()
+    for keyword, profile in _SITUATION_TO_PROFILE:
+        if keyword in situation_text:
+            energy_profile = profile
+            break
+
+    if not energy_profile:
+        for keyword, profile in _TIME_TO_PROFILE:
+            if keyword in time_of_day.lower():
+                energy_profile = profile
+                break
+
+    if not energy_profile:
+        energy_profile = "journey"
+
+    # 3. BPM nudge based on crowd energy
+    bpm_delta = 0
+    for keyword, delta in _CROWD_BPM_DELTA:
+        if keyword in crowd_energy.lower():
+            bpm_delta = delta
+            break
+    bpm_min += bpm_delta
+    bpm_max += bpm_delta
+
+    # 4. Human-readable reasoning
+    parts = []
+    if genre:
+        parts.append(f"Genre → {genre} ('{vibe_label}' vibe)")
+    parts.append(f"BPM → {bpm_min:.0f}–{bpm_max:.0f}")
+    parts.append(f"Energy profile → {energy_profile}")
+    if bpm_delta != 0:
+        parts.append(f"BPM shifted {bpm_delta:+d} for '{crowd_energy}' crowd")
+
+    return {
+        "genre": genre,
+        "bpm_min": bpm_min,
+        "bpm_max": bpm_max,
+        "energy_profile": energy_profile,
+        "vibe_label": vibe_label,
+        "reasoning": " | ".join(parts),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +343,117 @@ async def generate_setlist(
         "genre_distribution": setlist.genre_distribution,
         "essentia_cache_coverage": (
             f"{len(essentia_store)} tracks with audio analysis" if essentia_store else "no essentia cache"
+        ),
+        "tracks": [
+            {
+                "position": st.position,
+                "artist": st.track.artist,
+                "title": st.track.title,
+                "bpm": st.track.bpm,
+                "key": st.track.key,
+                "energy": st.track.energy,
+                "genre": st.track.genre,
+                "duration": st.track.duration_formatted(),
+                "file_path": st.track.file_path,
+                "key_relation": st.key_relation,
+                "transition_score": st.transition_score,
+                "notes": st.notes,
+                **_essentia_snippet(st.track.file_path),
+            }
+            for st in setlist.tracks
+        ],
+    }
+
+
+@mcp.tool()
+async def plan_set(
+    duration_minutes: int = 60,
+    vibe: str = "",
+    situation: str = "",
+    venue: str = "",
+    crowd_energy: str = "",
+    time_of_day: str = "",
+    genre_preference: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Build a DJ set from a vibe description rather than technical parameters.
+
+    Interprets freeform context about the DJ's situation and translates it into
+    genre, BPM range, and energy arc — then generates the full setlist.
+
+    Args:
+        duration_minutes: Set length in minutes (default 60)
+        vibe: Overall feel — e.g. "après ski", "underground warehouse", "rooftop sundowner", "beach party"
+        situation: What's happening — e.g. "warm-up", "peak time", "closing", "after party"
+        venue: Where you're playing — e.g. "ski chalet", "nightclub", "festival stage", "beach bar"
+        crowd_energy: How the crowd feels — e.g. "casual", "hyped", "just arriving", "mixed"
+        time_of_day: When the set is — e.g. "afternoon", "evening", "late night", "sunrise"
+        genre_preference: Optional genre override — e.g. "tech house", "techno", "melodic house"
+
+    Returns:
+        Setlist plus an interpretation block showing how the vibe was mapped to musical parameters.
+    """
+    await _ensure_initialized()
+
+    interpretation = _interpret_vibe(
+        vibe=vibe,
+        situation=situation,
+        venue=venue,
+        crowd_energy=crowd_energy,
+        time_of_day=time_of_day,
+        genre_preference=genre_preference or "",
+    )
+
+    context_parts = [p for p in [vibe, situation, venue] if p]
+    prompt = " | ".join(context_parts) if context_parts else f"{duration_minutes}min set"
+
+    request = SetlistRequest(
+        prompt=prompt,
+        duration_minutes=max(10, min(480, duration_minutes)),
+        genre=interpretation["genre"],
+        bpm_min=interpretation["bpm_min"],
+        bpm_max=interpretation["bpm_max"],
+        energy_profile=interpretation["energy_profile"],
+    )
+
+    setlist = engine.generate_setlist(request)
+
+    essentia_store = engine.essentia_store
+
+    def _essentia_snippet(file_path):
+        if not essentia_store:
+            return {}
+        ess = essentia_store.get(file_path)
+        if not ess:
+            return {}
+        return {
+            "essentia_energy": ess.energy_as_1_to_10(),
+            "danceability": ess.danceability_as_1_to_10(),
+            "dominant_mood": ess.dominant_mood(),
+            "top_genre_discogs": ess.top_genre(),
+            "lufs": round(ess.integrated_lufs, 1),
+        }
+
+    return {
+        "interpretation": {
+            "vibe_label": interpretation["vibe_label"],
+            "genre": interpretation["genre"],
+            "bpm_range": f"{interpretation['bpm_min']:.0f}–{interpretation['bpm_max']:.0f}",
+            "energy_profile": interpretation["energy_profile"],
+            "reasoning": interpretation["reasoning"],
+        },
+        "setlist_id": setlist.id,
+        "name": setlist.name,
+        "track_count": setlist.track_count,
+        "duration_minutes": round(setlist.total_duration_seconds / 60),
+        "avg_bpm": setlist.avg_bpm,
+        "bpm_range": {"min": setlist.bpm_range[0], "max": setlist.bpm_range[1]},
+        "harmonic_score": setlist.harmonic_score,
+        "energy_arc": setlist.energy_arc,
+        "genre_distribution": setlist.genre_distribution,
+        "essentia_cache_coverage": (
+            f"{len(essentia_store)} tracks with audio analysis"
+            if essentia_store else "no essentia cache"
         ),
         "tracks": [
             {

@@ -135,10 +135,12 @@ class SetlistEngine:
             current = setlist_tracks[-1].track
             position_pct = (pos - 1) / max(1, target_count - 1)
 
-            # Get energy context
-            prev_energy = current.energy
+            # Get energy context — use Essentia-derived energy when available so
+            # plateau/jump detection is based on the same energy signal as scoring.
+            prev_energy = self._effective_energy(current)
             prev_prev_energy = (
-                setlist_tracks[-2].track.energy if len(setlist_tracks) >= 2 else None
+                self._effective_energy(setlist_tracks[-2].track)
+                if len(setlist_tracks) >= 2 else None
             )
 
             # Score all available candidates
@@ -173,11 +175,9 @@ class SetlistEngine:
 
             used_ids.add(best_track.id)
 
-            # Calculate deltas
+            # Calculate deltas using Essentia energy where available
             bpm_delta = best_track.bpm - current.bpm if current.bpm > 0 else 0.0
-            energy_delta = (
-                (best_track.energy or 5) - (current.energy or 5)
-            )
+            energy_delta = self._effective_energy(best_track) - self._effective_energy(current)
 
             setlist_tracks.append(
                 SetlistTrack(
@@ -275,24 +275,6 @@ class SetlistEngine:
             energy_diff = abs(cand_energy - target_energy)
             energy_score = max(0.0, 1.0 - (energy_diff / 5.0))
 
-            # Danceability bonus from essentia
-            danceability_bonus = 0.0
-            if ess is not None:
-                d_score = ess.danceability_as_1_to_10() / 10.0
-                danceability_bonus = 0.03 * d_score
-
-            # Mood bonus: reward tracks whose mood fits the energy direction
-            mood_bonus = 0.0
-            if ess is not None:
-                if energy_direction == "up":
-                    mood_bonus = 0.03 * max(
-                        ess.mood_party or 0.0,
-                        ess.mood_aggressive or 0.0,
-                        ess.mood_happy or 0.0,
-                    )
-                elif energy_direction == "down":
-                    mood_bonus = 0.03 * (ess.mood_relaxed or 0.0)
-
             # Genre score — blend Rekordbox + Discogs genre when available
             genre_score = self._genre_score(current.genre, candidate.genre)
             if ess is not None and ess_current is not None:
@@ -300,15 +282,42 @@ class SetlistEngine:
                 if discogs_score is not None:
                     genre_score = 0.6 * genre_score + 0.4 * discogs_score
 
-            # Combined score
-            total = (
-                0.35 * h_score
-                + 0.30 * energy_score
-                + 0.20 * bpm_score
-                + 0.15 * genre_score
-                + danceability_bonus
-                + mood_bonus
-            )
+            if ess is not None:
+                # Dynamic weights when Essentia data available: danceability and mood
+                # become first-class scoring dimensions drawn from reduced base weights.
+                danceability_score = ess.danceability_as_1_to_10() / 10.0
+
+                if energy_direction == "up":
+                    mood_score = max(
+                        ess.mood_party or 0.0,
+                        ess.mood_aggressive or 0.0,
+                        ess.mood_happy or 0.0,
+                    )
+                elif energy_direction == "down":
+                    mood_score = ess.mood_relaxed or 0.0
+                else:
+                    mood_score = (
+                        0.6 * max(ess.mood_happy or 0.0, ess.mood_party or 0.0)
+                        + 0.4 * (ess.mood_relaxed or 0.0)
+                    )
+
+                total = (
+                    0.30 * h_score
+                    + 0.25 * energy_score
+                    + 0.15 * bpm_score
+                    + 0.12 * genre_score
+                    + 0.08 * danceability_score
+                    + 0.05 * mood_score
+                    + 0.02  # essentia data availability bonus
+                )
+            else:
+                # No Essentia data: metadata-only weights
+                total = (
+                    0.35 * h_score
+                    + 0.30 * energy_score
+                    + 0.20 * bpm_score
+                    + 0.15 * genre_score
+                )
 
             reason = self._build_reason(
                 candidate, current, h_score, rel, energy_score,
@@ -346,16 +355,26 @@ class SetlistEngine:
         """
         Score a candidate track. Returns (total_score, harmonic_score, key_relation).
 
-        Weights (without essentia):
-          harmonic:  0.35
-          energy:    0.30
-          bpm:       0.15
-          genre:     0.10
-          diversity: 0.05
-          quality:   0.05
+        Weights adapt based on Essentia data availability:
 
-        When essentia cache is available, danceability and mood are folded into
-        the energy score and a small bonus is added for Discogs genre matching.
+        Without Essentia (metadata only):
+          harmonic:     0.35
+          energy:       0.30
+          bpm:          0.15
+          genre:        0.10
+          diversity:    0.05
+          quality:      0.05
+
+        With Essentia (objective audio features):
+          harmonic:     0.30
+          energy:       0.25  (LUFS-derived, objective)
+          bpm:          0.13  (Essentia BPM, more accurate)
+          genre:        0.10  (Rekordbox 60% + Discogs 40%)
+          danceability: 0.08  (first-class dimension, was a tiny bonus)
+          mood:         0.05  (position-aware: party/happy at peak, relaxed at low)
+          diversity:    0.05
+          quality:      0.04
+          data bonus:  +0.02  (preference for analyzed tracks when scores are close)
         """
         # Harmonic score
         h_score, rel = self.camelot.transition_score(
@@ -366,53 +385,24 @@ class SetlistEngine:
         ess = self.essentia_store.get(candidate.file_path) if self.essentia_store else None
         ess_current = self.essentia_store.get(current_track.file_path) if self.essentia_store else None
 
-        # Effective energy: essentia loudness-derived energy takes priority if available
-        if ess is not None:
-            cand_energy = ess.energy_as_1_to_10()
-        else:
-            cand_energy = candidate.energy or 5
+        # Effective energy: Essentia LUFS-derived energy takes priority when available
+        cand_energy = ess.energy_as_1_to_10() if ess is not None else (candidate.energy or 5)
 
         # Energy score (how well the candidate fits the energy arc at this position)
         energy_score = self.planner.score_energy_placement(
             cand_energy, position_pct, profile, prev_energy, prev_prev_energy
         )
 
-        # Danceability bonus from essentia (0.0–1.0 → small boost)
-        danceability_bonus = 0.0
-        if ess is not None:
-            # High danceability tracks score better for party/peak profiles
-            d_score = ess.danceability_as_1_to_10() / 10.0
-            if profile in ("peak", "build", "wave"):
-                danceability_bonus = 0.05 * d_score
-            else:
-                danceability_bonus = 0.02 * d_score
-
-        # Mood compatibility bonus: prefer energetic moods at peak positions
-        mood_bonus = 0.0
-        if ess is not None:
-            target_energy_level = self.planner.get_target_energy(position_pct, profile)
-            if target_energy_level >= 7:
-                # High-energy section: prefer party/aggressive moods
-                mood_bonus = 0.03 * max(
-                    ess.mood_party or 0.0,
-                    ess.mood_aggressive or 0.0,
-                    ess.mood_happy or 0.0,
-                )
-            elif target_energy_level <= 4:
-                # Low-energy section: prefer relaxed mood
-                mood_bonus = 0.03 * (ess.mood_relaxed or 0.0)
-
-        # BPM score — use essentia BPM if available (more accurate than Rekordbox)
+        # BPM score — use Essentia BPM if available (more accurate than Rekordbox)
         candidate_bpm = ess.bpm_essentia if (ess and ess.bpm_essentia > 0) else candidate.bpm
         current_bpm = ess_current.bpm_essentia if (ess_current and ess_current.bpm_essentia > 0) else current_track.bpm
         bpm_score = self._bpm_score(current_bpm, candidate_bpm)
 
-        # Genre score — augment with Discogs genre data when available
+        # Genre score — blend Rekordbox + Discogs genre when both available
         genre_score = self._genre_score(current_track.genre, candidate.genre)
         if ess is not None and ess_current is not None:
             discogs_score = self._discogs_genre_score(ess_current.genre_discogs, ess.genre_discogs)
             if discogs_score is not None:
-                # Blend: 60% Rekordbox genre, 40% Discogs
                 genre_score = 0.6 * genre_score + 0.4 * discogs_score
 
         # Diversity penalty
@@ -431,16 +421,54 @@ class SetlistEngine:
         if candidate.play_count > 5:
             quality = min(1.0, quality + 0.1)
 
-        total = (
-            0.35 * h_score
-            + 0.30 * energy_score
-            + 0.15 * bpm_score
-            + 0.10 * genre_score
-            + 0.05 * diversity
-            + 0.05 * quality
-            + danceability_bonus
-            + mood_bonus
-        )
+        if ess is not None:
+            # --- Essentia data available: use dynamic weights where danceability and
+            # mood are first-class scoring dimensions, not minor bonuses.
+            # Weights drawn from reduced harmonic/energy/bpm to keep total ≈ 1.0.
+            # A small essentia_data_bonus biases toward analyzed tracks when scores
+            # are otherwise equal.
+            target_energy_level = self.planner.get_target_energy(position_pct, profile)
+
+            # Danceability: 0-1 score, normalized from Essentia's 0-3 range
+            danceability_score = ess.danceability_as_1_to_10() / 10.0
+
+            # Mood: 0-1 score matched to the set position's energy target
+            if target_energy_level >= 7:
+                mood_score = max(
+                    ess.mood_party or 0.0,
+                    ess.mood_aggressive or 0.0,
+                    ess.mood_happy or 0.0,
+                )
+            elif target_energy_level <= 4:
+                mood_score = ess.mood_relaxed or 0.0
+            else:
+                # Mid-energy: reward happy/party, mild credit for relaxed
+                mood_score = (
+                    0.6 * max(ess.mood_happy or 0.0, ess.mood_party or 0.0)
+                    + 0.4 * (ess.mood_relaxed or 0.0)
+                )
+
+            total = (
+                0.30 * h_score
+                + 0.25 * energy_score
+                + 0.13 * bpm_score
+                + 0.10 * genre_score
+                + 0.05 * diversity
+                + 0.04 * quality
+                + 0.08 * danceability_score
+                + 0.05 * mood_score
+                + 0.02  # essentia data availability bonus
+            )
+        else:
+            # --- No Essentia data: fall back to metadata-only weights
+            total = (
+                0.35 * h_score
+                + 0.30 * energy_score
+                + 0.15 * bpm_score
+                + 0.10 * genre_score
+                + 0.05 * diversity
+                + 0.05 * quality
+            )
 
         return (total, h_score, rel)
 
@@ -522,9 +550,10 @@ class SetlistEngine:
         if not available:
             available = [t for t in self.tracks if t.id not in used_ids]
 
-        # Sort by closeness to target opening energy, then by rating
+        # Sort by closeness to target opening energy, then by rating.
+        # Use Essentia energy when available for an objective energy reading.
         def start_score(t: TrackWithEnergy) -> float:
-            e_diff = abs((t.energy or 5) - target_energy)
+            e_diff = abs(self._effective_energy(t) - target_energy)
             return -e_diff + (t.rating / 10.0)
 
         available.sort(key=start_score, reverse=True)
@@ -562,7 +591,9 @@ class SetlistEngine:
     ) -> Setlist:
         """Assemble a Setlist model from generated tracks."""
         bpms = [st.track.bpm for st in tracks if st.track.bpm > 0]
-        energies = [st.track.energy or 5 for st in tracks]
+        # Use Essentia-derived energy for the arc when available — this is the same
+        # signal used during scoring, so the reported arc matches actual selection logic.
+        energies = [self._effective_energy(st.track) for st in tracks]
         harmonic_scores = [st.transition_score for st in tracks[1:]]  # skip first
 
         genre_dist: Dict[str, int] = {}
@@ -665,6 +696,18 @@ class SetlistEngine:
                 parts.append(f"High danceability ({d_score}/10)")
 
         return ". ".join(parts) if parts else "Compatible track"
+
+    def _effective_energy(self, track: TrackWithEnergy) -> int:
+        """Return the best available energy value for a track.
+
+        Priority: Essentia LUFS-derived energy (objective, loudness-based)
+        > Rekordbox manual tag (subjective).
+        """
+        if self.essentia_store:
+            ess = self.essentia_store.get(track.file_path)
+            if ess is not None:
+                return ess.energy_as_1_to_10()
+        return track.energy or 5
 
     # ------------------------------------------------------------------
     # Library stats
