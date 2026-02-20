@@ -542,6 +542,552 @@ async def search_library(
 
 
 # ---------------------------------------------------------------------------
+# Raw Database Table Tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def get_db_artists(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdArtist table — all artists in the Rekordbox library.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of artist records with ID, Name, SearchStr.
+    """
+    await _ensure_initialized()
+    return await db.query_artists(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_albums(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdAlbum table — all albums in the Rekordbox library.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of album records with ID, Name, AlbumArtistID, ImagePath, Compilation.
+    """
+    await _ensure_initialized()
+    return await db.query_albums(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_genres(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdGenre table — all genres in the Rekordbox library.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of genre records with ID and Name.
+    """
+    await _ensure_initialized()
+    return await db.query_genres(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_labels(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdLabel table — all record labels in the Rekordbox library.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of label records with ID and Name.
+    """
+    await _ensure_initialized()
+    return await db.query_labels(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_keys(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdKey table — all musical keys stored in Rekordbox.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of key records with ID, ScaleName, and Seq (sort order).
+    """
+    await _ensure_initialized()
+    return await db.query_keys(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_colors(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdColor table — color labels used to tag tracks in Rekordbox.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of color records with ID, ColorCode, SortKey, and Commnt (name).
+    """
+    await _ensure_initialized()
+    return await db.query_colors(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_playlists(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdPlaylist table — all playlists and playlist folders in Rekordbox.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of playlist records with ID, Name, Seq, Attribute (0=playlist, 1=folder, 4=smart), ParentID, ImagePath.
+    """
+    await _ensure_initialized()
+    return await db.query_playlists(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_playlist_songs(
+    playlist_id: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """
+    Query the djmdSongPlaylist table — track-to-playlist membership records.
+
+    Args:
+        playlist_id: Filter by a specific playlist ID. Optional.
+        limit: Maximum rows to return (default 500)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of records with ID, PlaylistID, ContentID, TrackNo (position in playlist).
+    """
+    await _ensure_initialized()
+    return await db.query_playlist_songs(playlist_id=playlist_id, limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_history(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdHistory table — DJ play history sessions in Rekordbox.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of history session records with ID, Name, Seq, Attribute, ParentID, DateCreated.
+    """
+    await _ensure_initialized()
+    return await db.query_history(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_history_songs(
+    history_id: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """
+    Query the djmdSongHistory table — tracks played in each history session.
+
+    Args:
+        history_id: Filter by a specific history session ID. Optional.
+        limit: Maximum rows to return (default 500)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of records with ID, HistoryID, ContentID, TrackNo (play order).
+    """
+    await _ensure_initialized()
+    return await db.query_history_songs(history_id=history_id, limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_my_tags(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdMyTag table — all My Tag labels defined in Rekordbox.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of My Tag records with ID, Name, Seq, Attribute, ParentID.
+    """
+    await _ensure_initialized()
+    return await db.query_my_tags(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_my_tag_songs(
+    my_tag_id: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """
+    Query the djmdSongMyTag table — track-to-My Tag assignments.
+
+    Args:
+        my_tag_id: Filter by a specific My Tag ID. Optional.
+        limit: Maximum rows to return (default 500)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of records with ID, MyTagID, ContentID, TrackNo.
+    """
+    await _ensure_initialized()
+    return await db.query_my_tag_songs(my_tag_id=my_tag_id, limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_cues(
+    content_id: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """
+    Query the djmdCue table — hot cues, memory cues, and loops stored in Rekordbox.
+
+    Args:
+        content_id: Filter by a specific track (ContentID). Optional.
+        limit: Maximum rows to return (default 500)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of cue records with ID, ContentID, InMsec, OutMsec, Kind, Color, Comment, BeatLoopSize, ActiveLoop.
+    """
+    await _ensure_initialized()
+    return await db.query_cues(content_id=content_id, limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_hot_cue_banklists(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdHotCueBanklist table — hot cue bank collections in Rekordbox.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of hot cue banklist records with ID, Name, Seq, Attribute, ParentID, ImagePath.
+    """
+    await _ensure_initialized()
+    return await db.query_hot_cue_banklists(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_song_hot_cue_banklists(
+    hot_cue_banklist_id: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """
+    Query the djmdSongHotCueBanklist table — hot cue bank entries per track.
+
+    Args:
+        hot_cue_banklist_id: Filter by a specific hot cue banklist ID. Optional.
+        limit: Maximum rows to return (default 500)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of records with ID, HotCueBanklistID, ContentID, TrackNo, Color, Comment.
+    """
+    await _ensure_initialized()
+    return await db.query_song_hot_cue_banklists(hot_cue_banklist_id=hot_cue_banklist_id, limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_samplers(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdSampler table — sampler banks defined in Rekordbox.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of sampler records with ID, Name, Seq, Attribute, ParentID.
+    """
+    await _ensure_initialized()
+    return await db.query_samplers(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_song_samplers(
+    sampler_id: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """
+    Query the djmdSongSampler table — track assignments to sampler banks.
+
+    Args:
+        sampler_id: Filter by a specific sampler ID. Optional.
+        limit: Maximum rows to return (default 500)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of records with ID, SamplerID, ContentID, TrackNo.
+    """
+    await _ensure_initialized()
+    return await db.query_song_samplers(sampler_id=sampler_id, limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_related_tracks(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdRelatedTracks table — related tracks collections in Rekordbox.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of related tracks records with ID, Name, Seq, Attribute, ParentID, Criteria.
+    """
+    await _ensure_initialized()
+    return await db.query_related_tracks(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_song_related_tracks(
+    related_tracks_id: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """
+    Query the djmdSongRelatedTracks table — track assignments to related tracks collections.
+
+    Args:
+        related_tracks_id: Filter by a specific related tracks collection ID. Optional.
+        limit: Maximum rows to return (default 500)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of records with ID, RelatedTracksID, ContentID, TrackNo.
+    """
+    await _ensure_initialized()
+    return await db.query_song_related_tracks(related_tracks_id=related_tracks_id, limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_active_censors(
+    content_id: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """
+    Query the djmdActiveCensor table — active censor regions (muted sections) on tracks.
+
+    Args:
+        content_id: Filter by a specific track (ContentID). Optional.
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of censor records with ID, ContentID, InMsec, OutMsec, Info, ParameterList.
+    """
+    await _ensure_initialized()
+    return await db.query_active_censors(content_id=content_id, limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_mixer_params(
+    content_id: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """
+    Query the djmdMixerParam table — per-track mixer gain and peak values stored by Rekordbox.
+
+    Args:
+        content_id: Filter by a specific track (ContentID). Optional.
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of mixer param records with ID, ContentID, GainHigh, GainLow, PeakHigh, PeakLow.
+    """
+    await _ensure_initialized()
+    return await db.query_mixer_params(content_id=content_id, limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_content_files(
+    content_id: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """
+    Query the contentFile table — file location and hash records for tracks.
+
+    Args:
+        content_id: Filter by a specific track (ContentID). Optional.
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of records with ID, ContentID, Path, Hash, Size.
+    """
+    await _ensure_initialized()
+    return await db.query_content_files(content_id=content_id, limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_image_files(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the imageFile table — artwork and image file records in Rekordbox.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of records with ID, TableName, TargetUUID, TargetID, Path, Size.
+    """
+    await _ensure_initialized()
+    return await db.query_image_files(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_setting_files(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the settingFile table — Rekordbox settings/export files.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of records with ID, Path, Hash, Size.
+    """
+    await _ensure_initialized()
+    return await db.query_setting_files(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_devices(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdDevice table — DJ devices registered in Rekordbox.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of device records with ID, MasterDBID, Name.
+    """
+    await _ensure_initialized()
+    return await db.query_devices(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_menu_items(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdMenuItems table — Rekordbox browser menu item definitions.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of menu item records with ID, Class, Name.
+    """
+    await _ensure_initialized()
+    return await db.query_menu_items(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_categories(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdCategory table — browser category configuration in Rekordbox.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of category records with ID, MenuItemID, Seq, Disable, InfoOrder.
+    """
+    await _ensure_initialized()
+    return await db.query_categories(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_sort(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdSort table — sort order settings for browser columns in Rekordbox.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of sort records with ID, MenuItemID, Seq, Disable.
+    """
+    await _ensure_initialized()
+    return await db.query_sort(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_song_tag_list(limit: int = 500, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the djmdSongTagList table — the tag list (Rekordbox tag list collection) track entries.
+
+    Args:
+        limit: Maximum rows to return (default 500)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of records with ID, ContentID, TrackNo.
+    """
+    await _ensure_initialized()
+    return await db.query_song_tag_list(limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def get_db_property() -> Dict[str, Any]:
+    """
+    Query the djmdProperty table — Rekordbox database metadata and version info.
+
+    Returns:
+        Record with DBID, DBVersion, BaseDBDrive, CurrentDBDrive, DeviceID.
+    """
+    await _ensure_initialized()
+    return await db.query_db_property()
+
+
+@mcp.tool()
+async def get_db_agent_registry(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Query the agentRegistry table — Rekordbox internal agent/sync registry entries.
+
+    Args:
+        limit: Maximum rows to return (default 100)
+        offset: Number of rows to skip (for pagination)
+
+    Returns:
+        List of registry records with registry_id, id_1, id_2, str_1, str_2.
+    """
+    await _ensure_initialized()
+    return await db.query_agent_registry(limit=limit, offset=offset)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

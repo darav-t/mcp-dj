@@ -148,6 +148,322 @@ class RekordboxDatabase:
         return None
 
     # ------------------------------------------------------------------
+    # Raw table query methods
+    # ------------------------------------------------------------------
+
+    def _row_to_dict(self, obj, fields: list) -> dict:
+        """Convert a SQLAlchemy model object to a dict for the given fields."""
+        result = {}
+        for f in fields:
+            val = getattr(obj, f, None)
+            if val is not None:
+                result[f] = str(val) if not isinstance(val, (int, float, bool)) else val
+            else:
+                result[f] = None
+        return result
+
+    async def query_artists(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_artist())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        return [{"ID": str(r.ID), "Name": r.Name, "SearchStr": getattr(r, "SearchStr", None)} for r in rows[offset:offset + limit]]
+
+    async def query_albums(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_album())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        return [{"ID": str(r.ID), "Name": r.Name, "AlbumArtistID": str(getattr(r, "AlbumArtistID", None) or ""), "ImagePath": getattr(r, "ImagePath", None), "Compilation": getattr(r, "Compilation", None)} for r in rows[offset:offset + limit]]
+
+    async def query_genres(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_genre())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        return [{"ID": str(r.ID), "Name": r.Name} for r in rows[offset:offset + limit]]
+
+    async def query_labels(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_label())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        return [{"ID": str(r.ID), "Name": r.Name} for r in rows[offset:offset + limit]]
+
+    async def query_keys(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_key())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        return [{"ID": str(r.ID), "ScaleName": r.ScaleName, "Seq": getattr(r, "Seq", None)} for r in rows[offset:offset + limit]]
+
+    async def query_colors(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_color())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        return [{"ID": str(r.ID), "ColorCode": getattr(r, "ColorCode", None), "SortKey": getattr(r, "SortKey", None), "Commnt": getattr(r, "Commnt", None)} for r in rows[offset:offset + limit]]
+
+    async def query_playlists(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_playlist())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        return [{"ID": str(r.ID), "Name": r.Name, "Seq": getattr(r, "Seq", None), "Attribute": getattr(r, "Attribute", None), "ParentID": str(getattr(r, "ParentID", None) or ""), "ImagePath": getattr(r, "ImagePath", None)} for r in rows[offset:offset + limit]]
+
+    async def query_playlist_songs(self, playlist_id: Optional[str] = None, limit: int = 500, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_playlist_songs())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        if playlist_id:
+            rows = [r for r in rows if str(r.PlaylistID) == str(playlist_id)]
+        return [{"ID": str(r.ID), "PlaylistID": str(r.PlaylistID), "ContentID": str(r.ContentID), "TrackNo": getattr(r, "TrackNo", None)} for r in rows[offset:offset + limit]]
+
+    async def query_history(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_history())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        return [{"ID": str(r.ID), "Name": r.Name, "Seq": getattr(r, "Seq", None), "Attribute": getattr(r, "Attribute", None), "ParentID": str(getattr(r, "ParentID", None) or ""), "DateCreated": str(getattr(r, "DateCreated", None) or "")} for r in rows[offset:offset + limit]]
+
+    async def query_history_songs(self, history_id: Optional[str] = None, limit: int = 500, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_history_songs())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        if history_id:
+            rows = [r for r in rows if str(r.HistoryID) == str(history_id)]
+        return [{"ID": str(r.ID), "HistoryID": str(r.HistoryID), "ContentID": str(r.ContentID), "TrackNo": getattr(r, "TrackNo", None)} for r in rows[offset:offset + limit]]
+
+    async def query_my_tags(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_my_tag())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        return [{"ID": str(r.ID), "Name": r.Name, "Seq": getattr(r, "Seq", None), "Attribute": getattr(r, "Attribute", None), "ParentID": str(getattr(r, "ParentID", None) or "")} for r in rows[offset:offset + limit]]
+
+    async def query_my_tag_songs(self, my_tag_id: Optional[str] = None, limit: int = 500, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_my_tag_songs())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        if my_tag_id:
+            rows = [r for r in rows if str(r.MyTagID) == str(my_tag_id)]
+        return [{"ID": str(r.ID), "MyTagID": str(r.MyTagID), "ContentID": str(r.ContentID), "TrackNo": getattr(r, "TrackNo", None)} for r in rows[offset:offset + limit]]
+
+    async def query_cues(self, content_id: Optional[str] = None, limit: int = 500, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_cue())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        if content_id:
+            rows = [r for r in rows if str(r.ContentID) == str(content_id)]
+        return [{
+            "ID": str(r.ID),
+            "ContentID": str(r.ContentID),
+            "InMsec": getattr(r, "InMsec", None),
+            "OutMsec": getattr(r, "OutMsec", None),
+            "Kind": getattr(r, "Kind", None),
+            "Color": getattr(r, "Color", None),
+            "Comment": getattr(r, "Comment", None),
+            "BeatLoopSize": getattr(r, "BeatLoopSize", None),
+            "ActiveLoop": getattr(r, "ActiveLoop", None),
+        } for r in rows[offset:offset + limit]]
+
+    async def query_hot_cue_banklists(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_hot_cue_banklist())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        return [{"ID": str(r.ID), "Name": r.Name, "Seq": getattr(r, "Seq", None), "Attribute": getattr(r, "Attribute", None), "ParentID": str(getattr(r, "ParentID", None) or ""), "ImagePath": getattr(r, "ImagePath", None)} for r in rows[offset:offset + limit]]
+
+    async def query_samplers(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_sampler())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        return [{"ID": str(r.ID), "Name": r.Name, "Seq": getattr(r, "Seq", None), "Attribute": getattr(r, "Attribute", None), "ParentID": str(getattr(r, "ParentID", None) or "")} for r in rows[offset:offset + limit]]
+
+    async def query_content_files(self, content_id: Optional[str] = None, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_content_file())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        if content_id:
+            rows = [r for r in rows if str(r.ContentID) == str(content_id)]
+        return [{"ID": str(r.ID), "ContentID": str(r.ContentID), "Path": getattr(r, "Path", None), "Hash": getattr(r, "Hash", None), "Size": getattr(r, "Size", None)} for r in rows[offset:offset + limit]]
+
+    async def query_image_files(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_image_file())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        return [{"ID": str(r.ID), "TableName": getattr(r, "TableName", None), "TargetUUID": getattr(r, "TargetUUID", None), "TargetID": getattr(r, "TargetID", None), "Path": getattr(r, "Path", None), "Size": getattr(r, "Size", None)} for r in rows[offset:offset + limit]]
+
+    async def query_setting_files(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_setting_file())
+        rows = [r for r in rows if getattr(r, "rb_local_deleted", 0) == 0]
+        return [{"ID": str(r.ID), "Path": getattr(r, "Path", None), "Hash": getattr(r, "Hash", None), "Size": getattr(r, "Size", None)} for r in rows[offset:offset + limit]]
+
+    async def query_agent_registry(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        rows = list(self.db.get_agent_registry())
+        return [{"registry_id": str(getattr(r, "registry_id", "") or ""), "id_1": getattr(r, "id_1", None), "id_2": getattr(r, "id_2", None), "str_1": getattr(r, "str_1", None), "str_2": getattr(r, "str_2", None)} for r in rows[offset:offset + limit]]
+
+    async def query_db_property(self) -> dict:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        try:
+            from pyrekordbox.masterdb import DjmdProperty
+            session = getattr(self.db, "session", None) or getattr(self.db, "_session", None)
+            row = session.query(DjmdProperty).first()
+            if row is None:
+                return {}
+            return {"DBID": getattr(row, "DBID", None), "DBVersion": getattr(row, "DBVersion", None), "BaseDBDrive": getattr(row, "BaseDBDrive", None), "CurrentDBDrive": getattr(row, "CurrentDBDrive", None), "DeviceID": getattr(row, "DeviceID", None)}
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def query_mixer_params(self, content_id: Optional[str] = None, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        try:
+            from pyrekordbox.masterdb import DjmdMixerParam
+            session = getattr(self.db, "session", None) or getattr(self.db, "_session", None)
+            q = session.query(DjmdMixerParam).filter(DjmdMixerParam.rb_local_deleted == 0)
+            if content_id:
+                q = q.filter(DjmdMixerParam.ContentID == content_id)
+            rows = q.offset(offset).limit(limit).all()
+            return [{"ID": str(r.ID), "ContentID": str(r.ContentID), "GainHigh": r.GainHigh, "GainLow": r.GainLow, "PeakHigh": r.PeakHigh, "PeakLow": r.PeakLow} for r in rows]
+        except Exception as e:
+            return [{"error": str(e)}]
+
+    async def query_devices(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        try:
+            from pyrekordbox.masterdb import DjmdDevice
+            session = getattr(self.db, "session", None) or getattr(self.db, "_session", None)
+            rows = session.query(DjmdDevice).filter(DjmdDevice.rb_local_deleted == 0).offset(offset).limit(limit).all()
+            return [{"ID": str(r.ID), "MasterDBID": getattr(r, "MasterDBID", None), "Name": r.Name} for r in rows]
+        except Exception as e:
+            return [{"error": str(e)}]
+
+    async def query_menu_items(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        try:
+            from pyrekordbox.masterdb import DjmdMenuItems
+            session = getattr(self.db, "session", None) or getattr(self.db, "_session", None)
+            rows = session.query(DjmdMenuItems).filter(DjmdMenuItems.rb_local_deleted == 0).offset(offset).limit(limit).all()
+            return [{"ID": str(r.ID), "Class": getattr(r, "Class", None), "Name": r.Name} for r in rows]
+        except Exception as e:
+            return [{"error": str(e)}]
+
+    async def query_categories(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        try:
+            from pyrekordbox.masterdb import DjmdCategory
+            session = getattr(self.db, "session", None) or getattr(self.db, "_session", None)
+            rows = session.query(DjmdCategory).filter(DjmdCategory.rb_local_deleted == 0).offset(offset).limit(limit).all()
+            return [{"ID": str(r.ID), "MenuItemID": str(getattr(r, "MenuItemID", None) or ""), "Seq": getattr(r, "Seq", None), "Disable": getattr(r, "Disable", None), "InfoOrder": getattr(r, "InfoOrder", None)} for r in rows]
+        except Exception as e:
+            return [{"error": str(e)}]
+
+    async def query_sort(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        try:
+            from pyrekordbox.masterdb import DjmdSort
+            session = getattr(self.db, "session", None) or getattr(self.db, "_session", None)
+            rows = session.query(DjmdSort).filter(DjmdSort.rb_local_deleted == 0).offset(offset).limit(limit).all()
+            return [{"ID": str(r.ID), "MenuItemID": str(getattr(r, "MenuItemID", None) or ""), "Seq": getattr(r, "Seq", None), "Disable": getattr(r, "Disable", None)} for r in rows]
+        except Exception as e:
+            return [{"error": str(e)}]
+
+    async def query_related_tracks(self, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        try:
+            from pyrekordbox.masterdb import DjmdRelatedTracks
+            session = getattr(self.db, "session", None) or getattr(self.db, "_session", None)
+            rows = session.query(DjmdRelatedTracks).filter(DjmdRelatedTracks.rb_local_deleted == 0).offset(offset).limit(limit).all()
+            return [{"ID": str(r.ID), "Name": r.Name, "Seq": getattr(r, "Seq", None), "Attribute": getattr(r, "Attribute", None), "ParentID": str(getattr(r, "ParentID", None) or ""), "Criteria": getattr(r, "Criteria", None)} for r in rows]
+        except Exception as e:
+            return [{"error": str(e)}]
+
+    async def query_song_related_tracks(self, related_tracks_id: Optional[str] = None, limit: int = 500, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        try:
+            from pyrekordbox.masterdb import DjmdSongRelatedTracks
+            session = getattr(self.db, "session", None) or getattr(self.db, "_session", None)
+            q = session.query(DjmdSongRelatedTracks).filter(DjmdSongRelatedTracks.rb_local_deleted == 0)
+            if related_tracks_id:
+                q = q.filter(DjmdSongRelatedTracks.RelatedTracksID == related_tracks_id)
+            rows = q.offset(offset).limit(limit).all()
+            return [{"ID": str(r.ID), "RelatedTracksID": str(r.RelatedTracksID), "ContentID": str(r.ContentID), "TrackNo": getattr(r, "TrackNo", None)} for r in rows]
+        except Exception as e:
+            return [{"error": str(e)}]
+
+    async def query_active_censors(self, content_id: Optional[str] = None, limit: int = 100, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        try:
+            from pyrekordbox.masterdb import DjmdActiveCensor
+            session = getattr(self.db, "session", None) or getattr(self.db, "_session", None)
+            q = session.query(DjmdActiveCensor).filter(DjmdActiveCensor.rb_local_deleted == 0)
+            if content_id:
+                q = q.filter(DjmdActiveCensor.ContentID == content_id)
+            rows = q.offset(offset).limit(limit).all()
+            return [{"ID": str(r.ID), "ContentID": str(r.ContentID), "InMsec": getattr(r, "InMsec", None), "OutMsec": getattr(r, "OutMsec", None), "Info": getattr(r, "Info", None), "ParameterList": getattr(r, "ParameterList", None)} for r in rows]
+        except Exception as e:
+            return [{"error": str(e)}]
+
+    async def query_song_samplers(self, sampler_id: Optional[str] = None, limit: int = 500, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        try:
+            from pyrekordbox.masterdb import DjmdSongSampler
+            session = getattr(self.db, "session", None) or getattr(self.db, "_session", None)
+            q = session.query(DjmdSongSampler).filter(DjmdSongSampler.rb_local_deleted == 0)
+            if sampler_id:
+                q = q.filter(DjmdSongSampler.SamplerID == sampler_id)
+            rows = q.offset(offset).limit(limit).all()
+            return [{"ID": str(r.ID), "SamplerID": str(r.SamplerID), "ContentID": str(r.ContentID), "TrackNo": getattr(r, "TrackNo", None)} for r in rows]
+        except Exception as e:
+            return [{"error": str(e)}]
+
+    async def query_song_hot_cue_banklists(self, hot_cue_banklist_id: Optional[str] = None, limit: int = 500, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        try:
+            from pyrekordbox.masterdb import DjmdSongHotCueBanklist
+            session = getattr(self.db, "session", None) or getattr(self.db, "_session", None)
+            q = session.query(DjmdSongHotCueBanklist).filter(DjmdSongHotCueBanklist.rb_local_deleted == 0)
+            if hot_cue_banklist_id:
+                q = q.filter(DjmdSongHotCueBanklist.HotCueBanklistID == hot_cue_banklist_id)
+            rows = q.offset(offset).limit(limit).all()
+            return [{"ID": str(r.ID), "HotCueBanklistID": str(r.HotCueBanklistID), "ContentID": str(r.ContentID), "TrackNo": getattr(r, "TrackNo", None), "Color": getattr(r, "Color", None), "Comment": getattr(r, "Comment", None)} for r in rows]
+        except Exception as e:
+            return [{"error": str(e)}]
+
+    async def query_song_tag_list(self, limit: int = 500, offset: int = 0) -> list:
+        if not self.db:
+            raise RuntimeError("Database not connected")
+        try:
+            from pyrekordbox.masterdb import DjmdSongTagList
+            session = getattr(self.db, "session", None) or getattr(self.db, "_session", None)
+            rows = session.query(DjmdSongTagList).filter(DjmdSongTagList.rb_local_deleted == 0).offset(offset).limit(limit).all()
+            return [{"ID": str(r.ID), "ContentID": str(r.ContentID), "TrackNo": getattr(r, "TrackNo", None)} for r in rows]
+        except Exception as e:
+            return [{"error": str(e)}]
+
+    # ------------------------------------------------------------------
     # Playlist creation (for export)
     # ------------------------------------------------------------------
 
