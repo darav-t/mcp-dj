@@ -96,6 +96,14 @@ def build_attributes(
 
     tag_counts: Counter = Counter()
 
+    # Full feature vector accumulators — mood probabilities, Discogs genres, music tags
+    tag_mood_vectors:    dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+    global_mood_vectors: dict[str, list]            = defaultdict(list)
+    tag_discogs_vectors:    dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+    global_discogs_vectors: dict[str, list]            = defaultdict(list)
+    tag_music_tag_vectors:    dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+    global_music_tag_vectors: dict[str, list]            = defaultdict(list)
+
     for track in tracks:
         bpm          = float(getattr(track, "bpm", 0) or 0)
         energy       = getattr(track, "energy", None)
@@ -153,7 +161,7 @@ def build_attributes(
             if energy is not None:
                 genre_energies[genre].append(energy)
 
-        # Essentia: mood
+        # Essentia: mood, Discogs genre, and music tags feature vectors
         if essentia_store is not None:
             fp = getattr(track, "file_path", None)
             if fp:
@@ -165,6 +173,36 @@ def build_attributes(
                         mood_global[mood] += 1
                         for tag in track_tags:
                             tag_moods[tag][mood] += 1
+
+                    # Full mood probability vector
+                    mood_vec = {
+                        "happy":      ess.mood_happy,
+                        "sad":        ess.mood_sad,
+                        "aggressive": ess.mood_aggressive,
+                        "relaxed":    ess.mood_relaxed,
+                        "party":      ess.mood_party,
+                    }
+                    for m_key, m_val in mood_vec.items():
+                        if m_val is not None:
+                            global_mood_vectors[m_key].append(m_val)
+                            for tag in track_tags:
+                                tag_mood_vectors[tag][m_key].append(m_val)
+
+                    # Discogs genre probability vector (strip "Electronic---" prefix)
+                    if ess.genre_discogs:
+                        for raw_g, g_score in ess.genre_discogs.items():
+                            g_name = raw_g.split("---", 1)[-1]
+                            global_discogs_vectors[g_name].append(g_score)
+                            for tag in track_tags:
+                                tag_discogs_vectors[tag][g_name].append(g_score)
+
+                    # Music tags probability vector
+                    if ess.music_tags:
+                        for mt in ess.music_tags:
+                            t_name, t_score = mt["tag"], mt["score"]
+                            global_music_tag_vectors[t_name].append(t_score)
+                            for tag in track_tags:
+                                tag_music_tag_vectors[tag][t_name].append(t_score)
 
     # -----------------------------------------------------------------------
     # Helper — compute statistics for a list of numbers
@@ -201,6 +239,33 @@ def build_attributes(
         if tag_moods[tag]:
             detail["dominant_mood"] = tag_moods[tag].most_common(1)[0][0]
             detail["mood_dist"] = dict(tag_moods[tag].most_common())
+        # Averaged mood probability vector across all tracks with this tag
+        if tag_mood_vectors[tag]:
+            detail["mood_avg"] = {
+                m: round(statistics.mean(vals), 3)
+                for m, vals in tag_mood_vectors[tag].items()
+                if vals
+            }
+        # Averaged Discogs genre distribution (top 10 by average score)
+        if tag_discogs_vectors[tag]:
+            genre_avgs = {
+                g: round(statistics.mean(vals), 3)
+                for g, vals in tag_discogs_vectors[tag].items()
+                if vals
+            }
+            detail["discogs_genres_avg"] = dict(
+                sorted(genre_avgs.items(), key=lambda x: x[1], reverse=True)[:10]
+            )
+        # Averaged music tags distribution (top 10 by average score)
+        if tag_music_tag_vectors[tag]:
+            music_tag_avgs = {
+                t: round(statistics.mean(vals), 3)
+                for t, vals in tag_music_tag_vectors[tag].items()
+                if vals
+            }
+            detail["music_tags_avg"] = dict(
+                sorted(music_tag_avgs.items(), key=lambda x: x[1], reverse=True)[:10]
+            )
         if tag_genres[tag]:
             detail["top_genres"] = [g for g, _ in tag_genres[tag].most_common(5)]
         if tag_cooccur[tag]:
@@ -276,6 +341,27 @@ def build_attributes(
         },
         "play_counts":      _stats(play_counts),
         "moods":            dict(mood_global.most_common()),
+        # Library-wide averaged mood probability vector
+        "mood_avg": (
+            {m: round(statistics.mean(vals), 3) for m, vals in global_mood_vectors.items() if vals}
+            if global_mood_vectors else {}
+        ),
+        # Library-wide averaged Discogs genre distribution (top 20)
+        "discogs_genres_avg": (
+            dict(sorted(
+                {g: round(statistics.mean(vals), 3) for g, vals in global_discogs_vectors.items() if vals}.items(),
+                key=lambda x: x[1], reverse=True,
+            )[:20])
+            if global_discogs_vectors else {}
+        ),
+        # Library-wide averaged music tags distribution (top 20)
+        "music_tags_avg": (
+            dict(sorted(
+                {t: round(statistics.mean(vals), 3) for t, vals in global_music_tag_vectors.items() if vals}.items(),
+                key=lambda x: x[1], reverse=True,
+            )[:20])
+            if global_music_tag_vectors else {}
+        ),
         "colors":           dict(colors.most_common()),
         "energy_sources":   dict(energy_srcs.most_common()),
         "date_range": (

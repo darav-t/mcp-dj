@@ -301,14 +301,22 @@ class SetlistEngine:
                         + 0.4 * (ess.mood_relaxed or 0.0)
                     )
 
+                # Track-to-track mood and tags vector similarity (cosine)
+                mood_sim = self._mood_vector_similarity(ess_current, ess)
+                mood_sim = mood_sim if mood_sim is not None else 0.5
+                tags_sim = self._music_tags_similarity(ess_current, ess)
+                tags_sim = tags_sim if tags_sim is not None else 0.5
+
                 total = (
-                    0.30 * h_score
-                    + 0.25 * energy_score
-                    + 0.15 * bpm_score
-                    + 0.12 * genre_score
-                    + 0.08 * danceability_score
-                    + 0.05 * mood_score
-                    + 0.02  # essentia data availability bonus
+                    0.28 * h_score
+                    + 0.22 * energy_score
+                    + 0.12 * bpm_score
+                    + 0.10 * genre_score
+                    + 0.08 * mood_sim            # track-to-track mood vector match
+                    + 0.06 * danceability_score
+                    + 0.04 * mood_score          # position-aware mood target
+                    + 0.04 * tags_sim            # track-to-track music tags match
+                    + 0.02                       # essentia data availability bonus
                 )
             else:
                 # No Essentia data: metadata-only weights
@@ -366,15 +374,17 @@ class SetlistEngine:
           quality:      0.05
 
         With Essentia (objective audio features):
-          harmonic:     0.30
-          energy:       0.25  (LUFS-derived, objective)
-          bpm:          0.13  (Essentia BPM, more accurate)
-          genre:        0.10  (Rekordbox 60% + Discogs 40%)
-          danceability: 0.08  (first-class dimension, was a tiny bonus)
-          mood:         0.05  (position-aware: party/happy at peak, relaxed at low)
-          diversity:    0.05
-          quality:      0.04
-          data bonus:  +0.02  (preference for analyzed tracks when scores are close)
+          harmonic:        0.28
+          energy:          0.22  (LUFS-derived, objective)
+          bpm:             0.11  (Essentia BPM, more accurate)
+          genre:           0.09  (Rekordbox 60% + Discogs cosine 40%)
+          mood_similarity: 0.08  (track-to-track cosine similarity of mood vectors)
+          danceability:    0.06  (normalized from Essentia's 0-3 range)
+          mood_position:   0.04  (position-aware: party/happy at peak, relaxed at low)
+          tags_similarity: 0.04  (track-to-track cosine similarity of music tag vectors)
+          diversity:       0.04
+          quality:         0.02
+          data bonus:     +0.02  (preference for analyzed tracks when scores are close)
         """
         # Harmonic score
         h_score, rel = self.camelot.transition_score(
@@ -448,16 +458,24 @@ class SetlistEngine:
                     + 0.4 * (ess.mood_relaxed or 0.0)
                 )
 
+            # Track-to-track mood and tags vector similarity (cosine)
+            mood_sim = self._mood_vector_similarity(ess_current, ess)
+            mood_sim = mood_sim if mood_sim is not None else 0.5
+            tags_sim = self._music_tags_similarity(ess_current, ess)
+            tags_sim = tags_sim if tags_sim is not None else 0.5
+
             total = (
-                0.30 * h_score
-                + 0.25 * energy_score
-                + 0.13 * bpm_score
-                + 0.10 * genre_score
-                + 0.05 * diversity
-                + 0.04 * quality
-                + 0.08 * danceability_score
-                + 0.05 * mood_score
-                + 0.02  # essentia data availability bonus
+                0.28 * h_score
+                + 0.22 * energy_score
+                + 0.11 * bpm_score
+                + 0.09 * genre_score
+                + 0.08 * mood_sim            # track-to-track mood vector match
+                + 0.06 * danceability_score
+                + 0.04 * mood_score          # position-aware mood target
+                + 0.04 * tags_sim            # track-to-track music tags match
+                + 0.04 * diversity
+                + 0.02 * quality
+                + 0.02                       # essentia data availability bonus
             )
         else:
             # --- No Essentia data: fall back to metadata-only weights
@@ -515,6 +533,53 @@ class SetlistEngine:
         mag_a = sum(v ** 2 for v in current_discogs.values()) ** 0.5
         mag_b = sum(v ** 2 for v in candidate_discogs.values()) ** 0.5
 
+        if mag_a == 0 or mag_b == 0:
+            return None
+        return min(1.0, dot / (mag_a * mag_b))
+
+    @staticmethod
+    def _mood_vector_similarity(ess_a, ess_b) -> Optional[float]:
+        """Cosine similarity between two tracks' full mood probability vectors.
+
+        Measures how similar the two tracks *feel* across all five mood dimensions
+        (happy, sad, aggressive, relaxed, party) rather than just comparing dominant
+        labels.  Returns a score in [0, 1] or None if either track lacks mood data.
+        """
+        if ess_a is None or ess_b is None:
+            return None
+        moods = ["mood_happy", "mood_sad", "mood_aggressive", "mood_relaxed", "mood_party"]
+        vec_a = [getattr(ess_a, m) or 0.0 for m in moods]
+        vec_b = [getattr(ess_b, m) or 0.0 for m in moods]
+        if not any(vec_a) or not any(vec_b):
+            return None
+        dot   = sum(a * b for a, b in zip(vec_a, vec_b))
+        mag_a = sum(a ** 2 for a in vec_a) ** 0.5
+        mag_b = sum(b ** 2 for b in vec_b) ** 0.5
+        if mag_a == 0 or mag_b == 0:
+            return None
+        return min(1.0, dot / (mag_a * mag_b))
+
+    @staticmethod
+    def _music_tags_similarity(ess_a, ess_b) -> Optional[float]:
+        """Cosine similarity between two tracks' MagnaTagATune music tag vectors.
+
+        Provides a deep genre/texture fingerprint match beyond the Discogs classifier —
+        tags like 'techno', 'fast', 'beat', 'electronic' capture fine-grained sonic
+        texture that Discogs genres often miss.  Returns a score in [0, 1] or None if
+        either track lacks tag data.
+        """
+        if ess_a is None or ess_b is None:
+            return None
+        tags_a = {t["tag"]: t["score"] for t in (ess_a.music_tags or [])}
+        tags_b = {t["tag"]: t["score"] for t in (ess_b.music_tags or [])}
+        if not tags_a or not tags_b:
+            return None
+        common = set(tags_a) & set(tags_b)
+        if not common:
+            return 0.1  # Completely different tag spaces
+        dot   = sum(tags_a[t] * tags_b[t] for t in common)
+        mag_a = sum(v ** 2 for v in tags_a.values()) ** 0.5
+        mag_b = sum(v ** 2 for v in tags_b.values()) ** 0.5
         if mag_a == 0 or mag_b == 0:
             return None
         return min(1.0, dot / (mag_a * mag_b))
