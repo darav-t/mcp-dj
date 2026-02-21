@@ -453,21 +453,28 @@ PYEOF
 fi
 
 # -----------------------------------------------------------------------------
-# 10. Analyze Rekordbox library (only if essentia was installed)
+# 10. Analyze & index Rekordbox library (only if essentia was installed)
 # -----------------------------------------------------------------------------
 
 if [ "$INSTALL_ESSENTIA" = true ]; then
-  header "Step 10 — Analyze Rekordbox library"
+  header "Step 10 — Analyze & index Rekordbox library"
   divider
-  echo "  Essentia can now analyze every song in your Rekordbox library."
-  echo "  This extracts BPM, key, mood, genre, and tags for all your tracks,"
-  echo "  making AI setlist recommendations much more accurate."
+  echo "  This step does two things in one pass:"
   echo ""
-  echo "  Analysis runs in parallel across multiple CPU cores."
-  echo "  Depending on library size this may take a while (~10-15s per track)."
-  echo "  You can stop it any time with Ctrl+C and resume later."
+  echo "  1. Essentia analysis — extracts from every song:"
+  echo "       BPM + beat confidence, key (Camelot), danceability"
+  echo "       EBU R128 loudness, mood, genre (Discogs400), music tags"
   echo ""
-  read -r -p "  Analyze your Rekordbox library now? [y/N] " REPLY
+  echo "  2. Library index build — merges all data sources into:"
+  echo "       .data/library_index.jsonl       (grep-able, one record per track)"
+  echo "       .data/library_attributes.json   (dynamic tag/genre/BPM summary)"
+  echo "       .data/library_context.md        (LLM-ready context file)"
+  echo ""
+  echo "  Analysis runs in parallel. Depending on library size this may take"
+  echo "  a while (~10-15s per track). Stop any time with Ctrl+C and resume later."
+  echo "  Already-analyzed tracks are skipped automatically."
+  echo ""
+  read -r -p "  Analyze and index your Rekordbox library now? [y/N] " REPLY
   REPLY="${REPLY:-N}"
   if [[ "$REPLY" =~ ^[Yy]$ ]]; then
     # Suggest a worker count based on CPU cores
@@ -479,6 +486,7 @@ if [ "$INSTALL_ESSENTIA" = true ]; then
     bash "$SCRIPT_DIR/analyze-library.sh" --workers "$WORKERS"
   else
     warn "Skipping — run later with: ./analyze-library.sh"
+    echo "  This will analyze all tracks AND rebuild the library index in one step."
   fi
 fi
 
@@ -519,17 +527,21 @@ echo "       claude mcp add -s user $MCP_NAME -- uv run --project \"$SCRIPT_DIR\
 echo ""
 
 if [ "$INSTALL_ESSENTIA" = true ]; then
-  echo "  4. Analyze a track (BPM, key, mood, genre, tags):"
+  echo "  4. Analyze a single track (BPM, key, mood, genre, tags):"
   echo "       analyze-track /path/to/song.mp3"
-  echo "       analyze-track /path/to/song.mp3 --output json"
+  echo ""
+  echo "  5. Analyze & index your full library (run once, then as needed):"
+  echo "       ./analyze-library.sh"
+  echo "       ./analyze-library.sh --force    # re-analyze all tracks"
+  echo "       This also rebuilds .data/library_index.jsonl automatically."
   echo ""
   if [ "$SKIP_MODELS" = true ]; then
-    echo "  5. Download ML models when ready:"
+    echo "  6. Download ML models when ready:"
     echo "       ./download_models.sh"
     echo ""
   fi
 else
-  echo "  4. Enable audio analysis (optional, ~135 MB + ~300 MB models):"
+  echo "  4. Enable audio analysis + library indexing (optional, ~135 MB + ~300 MB models):"
   echo "       ./install.sh --essentia"
   echo ""
 fi

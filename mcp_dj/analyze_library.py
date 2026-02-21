@@ -36,6 +36,7 @@ from .essentia_analyzer import (
     analyze_file,
     _cache_path,
 )
+from .energy import EnergyResolver, MixedInKeyLibrary
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
 
@@ -122,10 +123,44 @@ def _is_cached(file_path: str) -> bool:
     return _cache_path(file_path).exists()
 
 
-async def _get_tracks() -> list:
+async def _load_library() -> tuple[list, list]:
+    """Load all tracks + My Tag hierarchy from Rekordbox. Returns (tracks, my_tag_tree)."""
     db = RekordboxDatabase()
     await db.connect()
-    return await db.get_all_tracks()
+    tracks = await db.get_all_tracks()
+    try:
+        my_tags = await db.query_my_tags(limit=500)
+    except Exception:
+        my_tags = []
+    await db.disconnect()
+    return tracks, my_tags
+
+
+def _build_library_index(tracks: list, my_tag_tree: list) -> dict:
+    """Rebuild the centralized JSONL library index from freshly analyzed tracks.
+
+    Resolves energy (MIK / album-tag fallback), loads Essentia cache, and writes:
+      .data/library_index.jsonl       — one merged record per track
+      .data/library_attributes.json  — dynamic tag/genre/BPM attribute summary
+      .data/library_context.md        — human-readable LLM context
+    """
+    from .library_index import LibraryIndex
+    from .essentia_analyzer import EssentiaFeatureStore
+
+    mik = MixedInKeyLibrary.from_env()
+    if mik is not None:
+        mik.load()
+    resolver = EnergyResolver(mik)
+    resolver.resolve_all(tracks)
+
+    essentia_store = EssentiaFeatureStore(tracks)
+    idx = LibraryIndex()
+    return idx.build(
+        tracks=tracks,
+        essentia_store=essentia_store,
+        mik_library=mik,
+        my_tag_tree=my_tag_tree,
+    )
 
 
 def _default_workers() -> int:
@@ -181,7 +216,7 @@ def main() -> None:
     # ── load & scan library ───────────────────────────────────────────────────
     print("Scanning Rekordbox library…", end="", flush=True)
     try:
-        tracks = asyncio.run(_get_tracks())
+        tracks, my_tag_tree = asyncio.run(_load_library())
     except Exception as e:
         print(f"\nERROR: Could not load Rekordbox database: {e}", file=sys.stderr)
         sys.exit(1)
@@ -216,7 +251,18 @@ def main() -> None:
         return
 
     if not to_analyze:
-        print("Nothing to analyze.")
+        print("Nothing to analyze — all tracks already cached.")
+        print(f"\n{BOLD}Building library index…{NC}", flush=True)
+        try:
+            idx_stats = _build_library_index(tracks, my_tag_tree)
+            print(
+                f"  {GREEN}✓{NC} {idx_stats['total']} tracks indexed  "
+                f"({idx_stats['with_essentia']} with Essentia, "
+                f"{idx_stats['with_mik']} with MIK)"
+            )
+            print(f"  Index:      {idx_stats.get('index_path', '.data/library_index.jsonl')}")
+        except Exception as e:
+            print(f"  {YELLOW}Warning: library index build failed:{NC} {e}")
         return
 
     # ── parallel analysis via queue ───────────────────────────────────────────
@@ -306,6 +352,19 @@ def main() -> None:
     print(f"  Errors:     {stats.get('error', 0)}")
     print(f"  Cached:     {already_cached} (skipped)")
     print(avg_str, end="")
+
+    # ── rebuild library index ─────────────────────────────────────────────────
+    print(f"\n{BOLD}Building library index…{NC}", flush=True)
+    try:
+        idx_stats = _build_library_index(tracks, my_tag_tree)
+        print(
+            f"  {GREEN}✓{NC} {idx_stats['total']} tracks indexed  "
+            f"({idx_stats['with_essentia']} with Essentia, "
+            f"{idx_stats['with_mik']} with MIK)"
+        )
+        print(f"  Index:      {idx_stats.get('index_path', '.data/library_index.jsonl')}")
+    except Exception as e:
+        print(f"  {YELLOW}Warning: library index build failed:{NC} {e}")
 
 
 if __name__ == "__main__":
