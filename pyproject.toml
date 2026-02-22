@@ -25,6 +25,7 @@ essentia = [
 
 [project.scripts]
 analyze-track = "mcp_dj.essentia_analyzer:_cli_main"
+build-library-index = "mcp_dj.analyze_library:_build_index_cli_main"
 
 [build-system]
 requires = ["hatchling"]

@@ -466,5 +466,61 @@ def main() -> None:
         print(f"  {YELLOW}Warning: library index build failed:{NC} {e}")
 
 
+def _build_index_cli_main() -> None:
+    """Entry point for ``build-library-index``.
+
+    Rebuilds .data/library_index.jsonl (+ attributes + context MD) from the
+    existing Essentia cache — no audio re-analysis is performed.
+
+    Usage:
+        build-library-index
+        build-library-index --force   # force rebuild even if index is fresh
+    """
+    parser = argparse.ArgumentParser(
+        prog="build-library-index",
+        description=(
+            "Rebuild the centralized library index from the existing Essentia cache.\n"
+            "Writes .data/library_index.jsonl, library_attributes.json, "
+            "and library_context.md."
+        ),
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Rebuild even if the index was written within the last hour",
+    )
+    args = parser.parse_args()
+
+    from .library_index import LibraryIndex
+
+    idx = LibraryIndex()
+    if not args.force and idx.is_fresh():
+        print("Library index is up-to-date (use --force to rebuild).")
+        return
+
+    print("Loading Rekordbox library…", end="", flush=True)
+    try:
+        tracks, my_tag_tree = asyncio.run(_load_library())
+    except Exception as e:
+        print(f"\nERROR: Could not load Rekordbox database: {e}", file=sys.stderr)
+        sys.exit(1)
+    print(f"\r{' ' * 40}\r", end="")
+
+    print(f"{BOLD}Building library index…{NC}", flush=True)
+    try:
+        stats = _build_library_index(tracks, my_tag_tree)
+        print(
+            f"  {GREEN}✓{NC} {stats['total']} tracks indexed  "
+            f"({stats['with_essentia']} with Essentia, "
+            f"{stats['with_mik']} with MIK)"
+        )
+        print(f"  Index:      {stats.get('index_path', '.data/library_index.jsonl')}")
+        print(f"  Attributes: {stats.get('attributes_path', '.data/library_attributes.json')}")
+        print(f"  Context:    {stats.get('context_path', '.data/library_context.md')}")
+    except Exception as e:
+        print(f"  {RED}ERROR:{NC} {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     main()

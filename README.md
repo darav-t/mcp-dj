@@ -12,9 +12,12 @@ AI-powered DJ setlist generator with harmonic mixing and energy arc planning, bu
 - **Harmonic mixing** — Camelot wheel compatibility scoring
 - **Energy arc planning** — 5 profiles: `journey`, `build`, `peak`, `chill`, `wave`
 - **AI chat interface** — Claude-powered natural language setlist requests
+- **MyTag-aware set building** — `build_set_from_prompt` filters candidates using your Rekordbox My Tags before applying harmonic/energy scoring
+- **Centralized library index** — JSONL index merging Rekordbox metadata, Essentia audio features, and MIK data; built at startup, updated incrementally during analysis
 - **Mixed In Key integration** — Uses your MIK energy ratings when available (optional)
 - **Essentia audio analysis** — ML-based BPM, key, mood, genre, and music tagging (optional)
 - **Rekordbox export** — Creates playlists directly in your Rekordbox library
+- **Claude Code slash commands** — `/build-set`, `/dj-library`, `/export-set` for fast in-editor workflows
 - **Two interfaces** — FastAPI web UI + FastMCP server for Claude Desktop
 
 ---
@@ -70,29 +73,53 @@ Your Rekordbox library (read-only)
   RekordboxDatabase          ← pyrekordbox / SQLCipher
          │
          ▼
+   LibraryIndex              ← JSONL index: Rekordbox + Essentia + MIK merged per track
+         │                      Built at startup, updated incrementally during analysis
+         ▼
    EnergyResolver            ← Essentia cache → MIK CSV (optional) → BPM heuristic
          │
          ▼
    SetlistEngine             ← Camelot wheel scoring + energy arc planning
-         │
+         │                      Candidate pool filtered from index via My Tags
     ┌────┴────┐
     ▼         ▼
  FastAPI    FastMCP
- Web UI     Claude Desktop
+ Web UI     Claude Desktop / Claude Code
 ```
 
 | Module | Role |
 |---|---|
 | `database.py` | Read-only Rekordbox 6 access via pyrekordbox |
+| `library_index.py` | Centralized JSONL index — merges Rekordbox + Essentia + MIK; dynamic attribute scanning |
 | `camelot.py` | Camelot wheel — harmonic compatibility scoring |
 | `energy.py` | Energy resolution: Essentia cache → MIK CSV → album tag → BPM heuristic |
 | `energy_planner.py` | 5 energy arc profiles (journey, build, peak, chill, wave) |
 | `setlist_engine.py` | Greedy track selection with harmonic + energy + BPM scoring |
 | `essentia_analyzer.py` | ML audio analysis: BPM, key, mood, genre, tagging (optional) |
-| `analyze_library.py` | Batch library analysis with parallel workers and caching |
+| `analyze_library.py` | Batch library analysis with parallel workers; incremental index updates |
+| `analyze_track.py` | Single-track analysis CLI entry point |
 | `ai_integration.py` | Claude API with tool calling, conversation history, fallback mode |
 | `app.py` | FastAPI web UI |
 | `mcp_server.py` | FastMCP server for Claude Desktop |
+
+---
+
+## MCP Tools
+
+| Tool | Description |
+|---|---|
+| `build_set_from_prompt` | Natural language → harmonically ordered setlist, using My Tag filtering from the library index |
+| `generate_setlist` | Setlist from explicit parameters (genre, BPM, energy profile) |
+| `plan_set` | Vibe-based set planning (venue, crowd, time of day) |
+| `rebuild_library_index` | Rebuild the JSONL index + dynamic attribute summary |
+| `get_library_attributes` | Full dynamic attribute summary: tag hierarchy, per-tag BPM/energy/mood, genre stats, co-occurrence |
+| `get_track_full_info` | Full merged record for a track (Rekordbox + Essentia + MIK) |
+| `search_library` | Search tracks by query, My Tag, or date range |
+| `recommend_next_track` | Harmonic + energy recommendations for the currently playing track |
+| `get_track_compatibility` | Compatibility analysis between two specific tracks |
+| `analyze_track` | Run Essentia audio analysis on a single file |
+| `analyze_library_essentia` | Batch-analyze the full library with Essentia |
+| `export_setlist_to_rekordbox` | Create a Rekordbox playlist from a generated setlist |
 
 ---
 
@@ -144,7 +171,7 @@ All configuration is via environment variables. Copy `.env.example` to `.env` an
 
 Essentia provides ML-based per-track analysis: BPM accuracy, key detection, danceability, EBU R128 loudness, mood probabilities (happy, sad, aggressive, relaxed, party), Discogs400 genre scores, and MagnaTagATune music tags.
 
-Results are cached at `.data/essentia_cache/` — each track is only analyzed once.
+Results are cached at `.data/essentia_cache/` — each track is only analyzed once. The library index is updated incrementally as each track finishes, so you can build sets while analysis is still running.
 
 ```bash
 # Install essentia + download ML models (~300 MB, one-time)
@@ -163,6 +190,17 @@ Results are cached at `.data/essentia_cache/` — each track is only analyzed on
 ./download_models.sh
 ```
 
+### Library index
+
+The library index (`.data/library_index.jsonl`) merges all track data into a single JSONL file used for My Tag filtering and attribute lookups. It is built automatically at server startup (refreshed if older than 1 hour) and rebuilt after any batch analysis run.
+
+To force a full rebuild:
+
+```bash
+# Via MCP tool (in Claude Desktop or Claude Code)
+rebuild_library_index(force=True)
+```
+
 ### Mixed In Key (optional)
 
 Energy data from Mixed In Key gives the setlist engine accurate per-track energy ratings. Without Essentia or MIK, energy is inferred from BPM and genre tags.
@@ -175,7 +213,7 @@ To enable:
 
 ## Claude Desktop Integration (MCP)
 
-The MCP server runs via your project’s virtualenv (`.venv`). Use the same style for each platform:
+The MCP server runs via your project's virtualenv (`.venv`). Use the same style for each platform:
 
 1. Open `claude_desktop_config.json` in this repo.
 2. Replace `/path/to/mcp_dj` with the **absolute path** to this repo on your machine.
@@ -212,6 +250,26 @@ Or run the MCP server manually:
 
 ---
 
+## Claude Code Slash Commands
+
+If you use Claude Code (the CLI), three slash commands are available in `.claude/commands/`:
+
+| Command | What it does |
+|---|---|
+| `/build-set [prompt]` | Build a DJ set from a natural language prompt — calls `build_set_from_prompt`, formats a tracklist table with energy sparkline, and offers export/adjust actions |
+| `/dj-library [query]` | Browse your library — search by tag, genre, artist, or track; show library stats and full MyTag hierarchy |
+| `/export-set [name]` | Export the most recently generated set to Rekordbox as a named playlist |
+
+Example:
+
+```
+/build-set 90min sunset progressive house, start melodic then build to peak
+/dj-library Festival
+/export-set Sunset Set Feb 2026
+```
+
+---
+
 ## Project Structure
 
 ```
@@ -221,6 +279,7 @@ dj-setlist-creator-mcp/
 │   ├── mcp_server.py        # FastMCP server for Claude Desktop
 │   ├── models.py            # Pydantic data models
 │   ├── database.py          # Rekordbox database layer (read-only)
+│   ├── library_index.py     # Centralized JSONL library index + dynamic attributes
 │   ├── camelot.py           # Camelot wheel harmonic mixing engine
 │   ├── energy.py            # Energy resolution (Essentia / MIK CSV / BPM heuristic)
 │   ├── energy_planner.py    # Energy arc profiles
@@ -231,11 +290,18 @@ dj-setlist-creator-mcp/
 │   ├── ai_integration.py    # Claude API integration with tool calling
 │   └── static/
 │       └── index.html       # Web UI
+├── .claude/
+│   └── commands/
+│       ├── build-set.md     # /build-set slash command
+│       ├── dj-library.md    # /dj-library slash command
+│       └── export-set.md    # /export-set slash command
 ├── tests/
 ├── screenshots/
-├── .data/                   # Git-ignored: Essentia cache + ML models
+├── .data/                   # Git-ignored: Essentia cache, ML models, library index
 │   ├── essentia_cache/      # Per-track analysis JSON cache
-│   └── models/              # ML model files (~300 MB, downloaded once)
+│   ├── models/              # ML model files (~300 MB, downloaded once)
+│   ├── library_index.jsonl  # Merged track index (Rekordbox + Essentia + MIK)
+│   └── library_attributes.json  # Dynamic attribute summary (tags, genres, BPM/energy)
 ├── install.sh               # Full install script (core + optional Essentia)
 ├── analyze-library.sh       # Batch-analyze Rekordbox library with Essentia
 ├── download_models.sh       # Download Essentia ML models

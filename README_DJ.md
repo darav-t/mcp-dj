@@ -6,7 +6,7 @@
 
 You've spent years building a library. Thousands of tracks, each tagged, analyzed, filed. But when it comes to planning a set — pulling the right tracks, in the right key, at the right energy, for the right crowd — you still do it all by hand.
 
-MCP DJ plugs into your existing Rekordbox library and helps you plan sets through conversation. Tell it what you want in plain language. It searches your actual tracks, scores them harmonically and energetically, and hands you a sequenced setlist — ready to export as a Rekordbox playlist.
+MCP DJ plugs into your existing Rekordbox library and helps you plan sets through conversation. Tell it what you want in plain language. It searches your actual tracks using your own My Tags, scores them harmonically and energetically, and hands you a sequenced setlist — ready to export as a Rekordbox playlist.
 
 Your ears, your taste. It handles the legwork.
 
@@ -17,6 +17,10 @@ Your ears, your taste. It handles the legwork.
 **Builds harmonically coherent sets from your library**
 
 Every track suggestion is scored against the Camelot wheel. Transitions stay in key, or move one step — no jarring key clashes unless you want them.
+
+**Filters candidates using your My Tags**
+
+Before any harmonic scoring happens, the AI matches your prompt to your Rekordbox My Tags and pulls only the tracks you've already curated for that context. Festival tracks for festival sets. Afters tracks for afters. Sunset tracks for sunset. Your curation does the heavy lifting.
 
 **Shapes the energy arc automatically**
 
@@ -36,7 +40,7 @@ With Essentia analysis enabled, the AI draws on actual audio features for each t
 
 **Exports directly into Rekordbox**
 
-When you're happy with the set, ask it to create a playlist by name. It appears in your Rekordbox library immediately — tracks in order, ready to load onto decks.
+When you're happy with the set, ask it to save the playlist. One line.
 
 ---
 
@@ -77,7 +81,7 @@ Ask follow-up questions, refine the selection, swap tracks in and out. It rememb
 
 ### Describe your set
 
-Tell it the duration, vibe, genre, and energy shape. The AI searches your Rekordbox library and assembles a scored setlist.
+Tell it the duration, vibe, genre, and energy shape. The AI searches your Rekordbox library — filtered through your My Tags — and assembles a scored setlist.
 
 ![Generate a setlist from a natural language prompt](screenshots/sample_set_list_generation_1.png)
 
@@ -85,7 +89,7 @@ Tell it the duration, vibe, genre, and energy shape. The AI searches your Rekord
 
 ### Ask it to explain its choices
 
-Want to understand why a track was included or how it defines a darker sound? Ask. It explains exactly which signals it used — key range, energy profile, genre tags, mood scores — and where its knowledge ends.
+Want to understand why a track was included or how it defines a darker sound? Ask. It explains exactly which signals it used — key range, energy profile, genre tags, mood scores, My Tag matches — and where its knowledge ends.
 
 ![Explanation of how darker sound is determined](screenshots/how_do_you_define_darker_sound.png)
 
@@ -113,13 +117,17 @@ The playlist shows up in your library with all tracks in order, BPM and key visi
 
 ## What it works with
 
-**Rekordbox 6** — reads your library directly. No import, no export, no CSV wrangling. Your existing tags, energy ratings, and cue points stay exactly where they are.
+**Rekordbox 6** — reads your library directly. No import, no export, no CSV wrangling. Your existing tags, energy ratings, cue points, and My Tags stay exactly where they are.
+
+**My Tags** — your own Rekordbox curation is the primary filter. Tag tracks as Festival, Afters, Sunset, House Bangers, etc. and the AI uses those tags to narrow the candidate pool before any scoring happens. The better your tagging, the better the sets.
 
 **Mixed In Key** — if you use MIK, point it at your Library CSV and it uses your MIK energy ratings for more accurate energy scoring.
 
-**Essentia (optional but recommended)** — runs a one-time audio analysis of your library. Extracts BPM, key, danceability, loudness, and mood from the audio itself. Results are cached — you run it once, it's done.
+**Essentia (optional but recommended)** — runs a one-time audio analysis of your library. Extracts BPM, key, danceability, loudness, and mood from the audio itself. Results are cached — you run it once, it's done. The library index updates incrementally as each track finishes, so you can build sets while analysis is still running.
 
 **Claude Desktop** — if you prefer chatting inside Claude Desktop rather than a browser tab, the MCP server mode drops straight into your existing Claude setup.
+
+**Claude Code** — three slash commands for fast in-editor workflows: `/build-set`, `/dj-library`, and `/export-set`.
 
 ---
 
@@ -164,6 +172,24 @@ Or use it inside Claude Desktop — see the [technical README](README.md#claude-
 
 ---
 
+## Slash commands (Claude Code)
+
+If you work in Claude Code, three slash commands give you fast access without opening a browser:
+
+| Command | What it does |
+|---|---|
+| `/build-set [prompt]` | Build a set from a natural language prompt — formats a full tracklist with energy sparkline |
+| `/dj-library [query]` | Browse tracks, tags, genres, or library stats |
+| `/export-set [name]` | Export the last generated set to Rekordbox |
+
+```
+/build-set 90min sunset progressive house, start melodic then build to peak
+/dj-library Festival
+/export-set Sunset Set Feb 2026
+```
+
+---
+
 ## What it knows — and what it doesn't
 
 The AI works entirely from your Rekordbox library. It has no opinion on tracks you don't own, no access to streaming services, and no awareness of what's popular right now.
@@ -175,6 +201,8 @@ What it cannot replace: your instinct for reading a room, your feel for when to 
 ---
 
 ## Tips for getting the most out of it
+
+**Tag your library in Rekordbox.** My Tags are the primary filter — tracks tagged Festival, Afters, Sunset, House Bangers, etc. become the candidate pool before any harmonic scoring happens. The more specific your tags, the tighter the sets.
 
 **Be specific about energy shape, not just genre.** "Dark techno" is vague. "Dark techno, starts at a 5, peaks at an 8 around 45 minutes, then drops to a 6 to close" gives it something to work with.
 
