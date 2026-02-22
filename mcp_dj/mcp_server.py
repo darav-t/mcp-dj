@@ -1970,7 +1970,8 @@ async def build_set_from_prompt(
     # 6. Register setlist in the main engine so export_setlist_to_rekordbox works
     engine._setlists[setlist.id] = setlist
 
-    # 7. Essentia enrichment per track
+    # 7. Essentia enrichment per track — expose mood vector, Discogs genres,
+    #    and music tags so the caller can see the full feature set used during scoring.
     ess_store = engine.essentia_store
 
     def _ess(file_path: Optional[str]) -> Dict:
@@ -1979,13 +1980,42 @@ async def build_set_from_prompt(
         ess = ess_store.get(file_path)
         if not ess:
             return {}
-        return {
+
+        out: Dict = {
             "essentia_energy": ess.energy_as_1_to_10(),
             "danceability": ess.danceability_as_1_to_10(),
-            "dominant_mood": ess.dominant_mood(),
-            "top_genre_discogs": ess.top_genre(),
             "lufs": round(ess.integrated_lufs, 1),
         }
+
+        # Full mood probability vector
+        mood: Dict = {}
+        for key, val in [
+            ("happy",      ess.mood_happy),
+            ("sad",        ess.mood_sad),
+            ("aggressive", ess.mood_aggressive),
+            ("relaxed",    ess.mood_relaxed),
+            ("party",      ess.mood_party),
+        ]:
+            if val is not None:
+                mood[key] = round(val, 2)
+        if mood:
+            out["mood"] = mood
+            out["dominant_mood"] = max(mood, key=mood.get)
+
+        # Top-3 Discogs genres (already stripped of "Electronic---" prefix)
+        if ess.genre_discogs:
+            sorted_genres = sorted(
+                ess.genre_discogs.items(), key=lambda x: x[1], reverse=True
+            )
+            out["top_genres"] = {g: round(s, 3) for g, s in sorted_genres[:3]}
+            out["top_genre_discogs"] = sorted_genres[0][0] if sorted_genres else None
+
+        # Top-5 music tags
+        if ess.music_tags:
+            sorted_tags = sorted(ess.music_tags, key=lambda t: t["score"], reverse=True)
+            out["top_tags"] = {t["tag"]: round(t["score"], 3) for t in sorted_tags[:5]}
+
+        return out
 
     return {
         "setlist_id": setlist.id,
@@ -2084,6 +2114,12 @@ async def rebuild_library_index(
         ),
     )
     library_attributes = library_index.attributes
+
+    # Refresh the engine's essentia store so live set-building scoring
+    # immediately uses the updated mood / genre / tags data.
+    if fresh_store is not None:
+        engine.essentia_store = fresh_store
+
     return stats
 
 

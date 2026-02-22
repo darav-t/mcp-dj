@@ -116,6 +116,17 @@ def load_cached_features(file_path: str) -> Optional[EssentiaFeatures]:
         )
         key_note = data.get("key_note", "")
         parts = key_note.split(" ", 1) if key_note else []
+        # Restore raw danceability (0-3+ range).  Newer cache files write
+        # "danceability_raw" explicitly; older files only have "danceability"
+        # (already 1-10 scaled).  Reverse-scale the legacy value so
+        # danceability_as_1_to_10() round-trips correctly:
+        #   scaled (1-10) → raw ≈ (scaled - 1) / 9 × 3  → re-scaled ≈ original
+        if "danceability_raw" in data:
+            danceability_raw = float(data["danceability_raw"])
+        else:
+            d_scaled = float(data.get("danceability", 1))
+            danceability_raw = (d_scaled - 1) / 9.0 * 3.0  # reverse of danceability_as_1_to_10
+
         return EssentiaFeatures(
             file_path=data.get("file_path", file_path),
             bpm_essentia=data.get("bpm", 0.0),
@@ -123,7 +134,7 @@ def load_cached_features(file_path: str) -> Optional[EssentiaFeatures]:
             key_name_raw=parts[0] if parts else None,
             key_scale=parts[1] if len(parts) > 1 else None,
             key_strength=data.get("key_strength", 0.0),
-            danceability=data.get("danceability", 0.0),
+            danceability=danceability_raw,
             integrated_lufs=data.get("lufs", 0.0),
             mood_happy=mood.get("happy"),
             mood_sad=mood.get("sad"),

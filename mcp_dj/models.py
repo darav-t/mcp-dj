@@ -156,6 +156,10 @@ class EssentiaFeatures(BaseModel):
             ),
             "key_strength": _r(self.key_strength),
             "energy": self.energy_as_1_to_10(),
+            # Store raw Essentia danceability (0-3+ range) so load_cached_features
+            # can restore it without loss of precision.  "danceability" keeps the
+            # 1-10 scaled value for display / grep.
+            "danceability_raw": _r(self.danceability, 3),
             "danceability": self.danceability_as_1_to_10(),
             "lufs": _r(self.integrated_lufs),
             "dominant_mood": self.dominant_mood(),
