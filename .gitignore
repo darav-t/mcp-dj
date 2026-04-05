@@ -67,3 +67,4 @@ Thumbs.db
 .data/library_context.md
 .data/dj_history/*
 .data/library_map.json
+.claude/launch.json

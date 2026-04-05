@@ -222,11 +222,11 @@ async def library_tracks(
         my_tag:    Filter by Rekordbox My Tag label (e.g. 'High Energy').
         date_from: Include only tracks added on/after this date (YYYY-MM-DD).
         date_to:   Include only tracks added on/before this date (YYYY-MM-DD).
-        limit:     Maximum results (default 100, capped at 500).
+        limit:     Maximum results (default 100, capped at 10000).
     """
     q = (search or "").strip().lower()
     tag_filter = (my_tag or "").strip().lower()
-    limit = min(limit, 500)
+    limit = min(limit, 10000)
     results = []
 
     for t in engine.tracks:
@@ -1424,6 +1424,73 @@ async def analyze_library_essentia(body: AnalyzeLibraryRequest):
         result["library_index_with_essentia"] = idx_stats["with_essentia"]
 
     return JSONResponse(result)
+
+
+# ---------------------------------------------------------------------------
+# Routes — Audio streaming, cue points, phrase analysis
+# ---------------------------------------------------------------------------
+
+import mimetypes as _mimetypes
+
+
+@app.get("/api/audio/{track_id}")
+async def stream_audio_file(track_id: str):
+    """Stream the raw audio file for a track by its Rekordbox content ID."""
+    track = next((t for t in engine.tracks if str(t.id) == track_id), None)
+    if not track or not track.file_path:
+        raise HTTPException(status_code=404, detail="Track not found")
+    p = Path(track.file_path)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail=f"Audio file not on disk: {p.name}")
+    mime = _mimetypes.guess_type(str(p))[0] or "audio/mpeg"
+    return FileResponse(str(p), media_type=mime)
+
+
+@app.get("/api/track/{track_id}/cues")
+async def get_track_cue_points(track_id: str):
+    """Return all cue points (memory + hot cues) for a track."""
+    if db.db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    rows = db.db.get_cue(ContentID=track_id).all()
+    return JSONResponse([
+        {
+            "id":      c.ID,
+            "time_ms": c.InMsec or 0,
+            "kind":    c.Kind  or 0,
+            "comment": c.Comment or "",
+            "color":   c.Color  or -1,
+        }
+        for c in rows if c.InMsec is not None
+    ])
+
+
+class AnalyzePhrasesRequest(BaseModel):
+    replace: bool = False
+
+
+@app.post("/api/track/{track_id}/analyze-phrases")
+async def analyze_track_phrases(track_id: str, body: AnalyzePhrasesRequest = None):
+    """Run phrase/structure detection on a track and write results as memory cues."""
+    if body is None:
+        body = AnalyzePhrasesRequest()
+    track = next((t for t in engine.tracks if str(t.id) == track_id), None)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    if not track.file_path or not Path(track.file_path).exists():
+        raise HTTPException(status_code=404, detail="Audio file not accessible on disk")
+
+    from .phrase_detector import PhraseDetector, write_phrase_cues
+    detector = PhraseDetector()
+    cues = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: detector.detect(track.file_path, bpm=track.bpm)
+    )
+    if db.db is not None:
+        write_phrase_cues(db.db, track_id, cues, replace_existing=body.replace)
+
+    return JSONResponse([
+        {"time_ms": c.time_ms, "label": c.label, "color": c.color, "bar_number": c.bar_number}
+        for c in cues
+    ])
 
 
 # ---------------------------------------------------------------------------

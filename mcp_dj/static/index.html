@@ -191,16 +191,18 @@
 
     /* ── Viz Panel ────────────────────────────────────────────── */
     .viz-header {
-      padding: 14px 20px;
+      padding: 10px 14px;
       border-bottom: 1px solid var(--border);
       display: flex; align-items: center; justify-content: space-between;
       background: var(--surface); flex-shrink: 0;
+      overflow: hidden;
     }
-    .viz-tabs { display: flex; gap: 2px; background: var(--surface2); border-radius: var(--radius-sm); padding: 3px; }
+    .viz-tabs { display: flex; gap: 2px; background: var(--surface2); border-radius: var(--radius-sm); padding: 3px; overflow-x: auto; scrollbar-width: none; flex-shrink: 1; min-width: 0; }
+    .viz-tabs::-webkit-scrollbar { display: none; }
     .viz-tab {
-      padding: 5px 14px;
+      padding: 5px 10px;
       border-radius: 5px; border: none;
-      font-size: 12px; font-weight: 500;
+      font-size: 11px; font-weight: 500; white-space: nowrap;
       color: var(--text-muted); background: transparent; transition: all .15s;
     }
     .viz-tab.active { background: var(--surface3); color: var(--text); }
@@ -440,6 +442,136 @@
     }
     .modal input:focus { border-color: var(--accent); }
     .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+    /* ── Library Tab ──────────────────────────────────────────── */
+    .lib-toolbar {
+      padding: 10px 14px; display: flex; gap: 8px; align-items: center;
+      border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--surface);
+    }
+    .lib-toolbar input {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--text);
+      padding: 7px 12px; font-size: 13px; outline: none; transition: border-color .15s;
+    }
+    .lib-toolbar input:focus { border-color: var(--accent); }
+    .lib-toolbar select {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--text);
+      padding: 7px 8px; font-size: 12px; outline: none; max-width: 150px; cursor: pointer;
+    }
+    .lib-col-header {
+      display: grid; grid-template-columns: 1fr 52px 48px 36px 130px 30px;
+      padding: 5px 14px; border-bottom: 1px solid var(--border);
+      background: var(--surface); flex-shrink: 0;
+      font-size: 10px; font-weight: 600; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: .5px;
+    }
+    .lib-scroll {
+      flex: 1; overflow-y: auto; position: relative;
+      scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+    }
+    #lib-rows-inner { position: absolute; top: 0; left: 0; right: 0; will-change: transform; }
+    .lib-row {
+      display: grid; grid-template-columns: 1fr 52px 48px 36px 130px 30px;
+      padding: 0 14px; height: 44px; align-items: center;
+      border-bottom: 1px solid rgba(53,53,63,.45);
+      cursor: pointer; transition: background .1s;
+    }
+    .lib-row:hover { background: var(--surface2); }
+    .lib-row-title  { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lib-row-artist { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lib-row-cell   { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+    .lib-row-tags   { font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lib-play-btn {
+      width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+      background: var(--surface3); border: 1px solid var(--border);
+      color: var(--accent); font-size: 9px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: all .15s;
+    }
+    .lib-play-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* ── Player Tab ───────────────────────────────────────────── */
+    .player-header {
+      padding: 10px 16px; display: flex; align-items: center; gap: 12px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      flex-shrink: 0; min-height: 52px;
+    }
+    .player-track-info { flex: 1; min-width: 0; }
+    .player-title  { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .player-artist { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .player-track-meta { display: flex; gap: 5px; align-items: center; flex-shrink: 0; }
+    .player-phrase-bar {
+      height: 26px; display: none; overflow: hidden; flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .phrase-seg {
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 700; color: rgba(255,255,255,.9);
+      text-shadow: 0 1px 2px rgba(0,0,0,.6); cursor: pointer;
+      white-space: nowrap; overflow: hidden; transition: opacity .15s;
+      text-transform: uppercase; letter-spacing: .4px;
+    }
+    .phrase-seg:hover { opacity: .8; }
+    .player-waveform-wrap {
+      flex: 1; position: relative; background: #0d0d0f; overflow: hidden; min-height: 180px;
+    }
+    .waveform-canvas  { display: block; width: 100%; height: 100%; cursor: crosshair; }
+    .waveform-loading {
+      position: absolute; inset: 0; background: rgba(13,13,15,.88);
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; gap: 10px; color: var(--text-muted); font-size: 13px;
+    }
+    .player-empty {
+      position: absolute; inset: 0; display: flex;
+      align-items: center; justify-content: center;
+      flex-direction: column; gap: 8px; color: var(--text-muted);
+    }
+    .player-transport {
+      padding: 8px 16px; display: flex; align-items: center; gap: 10px;
+      background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0;
+    }
+    .transport-left { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+    .transport-btn {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); font-size: 12px;
+      display: flex; align-items: center; justify-content: center; transition: all .15s;
+    }
+    .transport-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .transport-play {
+      width: 38px; height: 38px; background: var(--accent);
+      border-color: var(--accent); color: #fff; font-size: 14px;
+    }
+    .transport-play:hover { background: var(--accent2); border-color: var(--accent2); }
+    .transport-time {
+      font-size: 12px; color: var(--text-muted); white-space: nowrap;
+      flex-shrink: 0; min-width: 92px; font-variant-numeric: tabular-nums;
+    }
+    .transport-seek-wrap { flex: 1; }
+    .transport-vol { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+    .seek-bar, .vol-bar {
+      -webkit-appearance: none; appearance: none;
+      height: 4px; border-radius: 2px; background: var(--surface3);
+      outline: none; cursor: pointer; width: 100%;
+    }
+    .vol-bar { width: 64px; }
+    .seek-bar::-webkit-slider-thumb, .vol-bar::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 11px; height: 11px;
+      border-radius: 50%; background: var(--accent); cursor: pointer;
+    }
+    .player-cue-list {
+      padding: 6px 14px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+      background: var(--surface); border-top: 1px solid var(--border);
+      flex-shrink: 0; min-height: 40px; overflow-y: auto; max-height: 72px;
+    }
+    .cue-chip {
+      padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text-muted); cursor: pointer; white-space: nowrap; transition: all .15s;
+    }
+    .cue-chip:hover { border-color: var(--accent); color: var(--accent); }
+    .cue-chip.phrase { background: rgba(139,92,246,.1); border-color: rgba(139,92,246,.3); color: var(--accent); }
   </style>
 </head>
 <body>
@@ -518,6 +650,8 @@ Try asking me:
         <button class="viz-tab" onclick="switchTab('charts', this)">Charts</button>
         <button class="viz-tab" onclick="switchTab('recommendations', this)">Next Track</button>
         <button class="viz-tab" onclick="switchTab('map', this)">🗺 Track Map</button>
+        <button class="viz-tab" onclick="switchTab('library', this)">📚 Library</button>
+        <button class="viz-tab" onclick="switchTab('player', this)">▶ Player</button>
       </div>
       <div class="viz-actions" id="viz-actions">
         <span id="setlist-name-label" style="font-size:13px;color:var(--text-muted);"></span>
@@ -611,6 +745,76 @@ Try asking me:
           </div>
         </div>
       </div>
+
+      <!-- ── Library pane ───────────────────────────────────────── -->
+      <div class="pane" id="pane-library">
+        <div class="lib-toolbar">
+          <input type="text" id="lib-search" placeholder="Search tracks, artists, genres, keys…" oninput="libFilter(this.value)" />
+          <select id="lib-tag-select" onchange="libFilter(document.getElementById('lib-search').value)">
+            <option value="">All tags</option>
+          </select>
+          <span id="lib-count" style="font-size:12px;color:var(--text-dim);white-space:nowrap;flex-shrink:0;"></span>
+        </div>
+        <div class="lib-col-header">
+          <span>Title / Artist</span>
+          <span>BPM</span>
+          <span>Key</span>
+          <span>E</span>
+          <span>Tags</span>
+          <span></span>
+        </div>
+        <div class="lib-scroll" id="lib-scroll">
+          <div id="lib-spacer" style="position:relative;"></div>
+          <div id="lib-rows-inner"></div>
+        </div>
+      </div>
+
+      <!-- ── Player pane ────────────────────────────────────────── -->
+      <div class="pane" id="pane-player">
+        <div class="player-header">
+          <div class="player-track-info">
+            <div class="player-title"  id="player-title">No track loaded</div>
+            <div class="player-artist" id="player-artist"></div>
+          </div>
+          <div class="player-track-meta" id="player-meta"></div>
+          <button class="btn btn-ghost" id="phrase-btn" onclick="runPhraseAnalysis()"
+            style="font-size:11px;padding:4px 11px;display:none;">⚡ Analyze Phrases</button>
+        </div>
+        <div class="player-phrase-bar" id="player-phrase-bar"></div>
+        <div class="player-waveform-wrap">
+          <canvas id="waveform-canvas" class="waveform-canvas"></canvas>
+          <div class="waveform-loading" id="waveform-loading">
+            <div class="typing-dots"><span></span><span></span><span></span></div>
+            <span id="waveform-loading-msg">Loading audio…</span>
+          </div>
+          <div class="player-empty" id="player-empty">
+            <div class="empty-icon">🎵</div>
+            <h3>No track loaded</h3>
+            <p>Pick a track from the <strong>Library</strong> tab.</p>
+          </div>
+        </div>
+        <div class="player-transport">
+          <div class="transport-left">
+            <button class="transport-btn" onclick="playerSkipBack()" title="−8 bars">⏮</button>
+            <button class="transport-btn transport-play" id="play-btn" onclick="playerTogglePlay()">▶</button>
+            <button class="transport-btn" onclick="playerSkipFwd()"  title="+8 bars">⏭</button>
+          </div>
+          <div class="transport-time" id="transport-time">0:00 / 0:00</div>
+          <div class="transport-seek-wrap">
+            <input type="range" class="seek-bar" id="seek-bar" min="0" max="1000" value="0"
+              oninput="playerSeekTo(this.value / 1000)" />
+          </div>
+          <div class="transport-vol">
+            <span style="font-size:10px;color:var(--text-dim)">VOL</span>
+            <input type="range" class="vol-bar" id="vol-bar" min="0" max="100" value="80"
+              oninput="playerSetVolume(this.value / 100)" />
+          </div>
+        </div>
+        <div class="player-cue-list" id="player-cue-list">
+          <span style="font-size:12px;color:var(--text-dim)">Load a track to see cue points</span>
+        </div>
+      </div>
+
     </div>
   </section>
 </div>
@@ -771,9 +975,11 @@ function switchTab(name, btn) {
   document.querySelectorAll('.viz-tab').forEach(t => t.classList.remove('active'));
   document.getElementById(`pane-${name}`).classList.add('active');
   const tabs = document.querySelectorAll('.viz-tab');
-  const idx = ['setlist', 'charts', 'recommendations', 'map'].indexOf(name);
+  const idx = ['setlist', 'charts', 'recommendations', 'map', 'library', 'player'].indexOf(name);
   if (tabs[idx]) tabs[idx].classList.add('active');
-  if (name === 'map') loadTrackMap();
+  if (name === 'map')     loadTrackMap();
+  if (name === 'library') { loadLibrary(); setTimeout(() => libRender(), 50); }
+  if (name === 'player')  { if (PLAYER.waveData) setTimeout(resizeAndDrawWaveform, 50); }
 }
 
 // ── Setlist rendering ──────────────────────────────────────────────────────
@@ -1505,6 +1711,612 @@ async function rebuildTrackMap() {
     btn.disabled = false;
   }
 }
+
+// ── Library ────────────────────────────────────────────────────────────────
+const trackDataMap = new Map();   // id (string) → track metadata object
+
+const LIB = {
+  all:      [],
+  filtered: [],
+  rowH:     44,
+  loaded:   false,
+};
+
+async function loadLibrary() {
+  if (LIB.loaded) return;
+  document.getElementById('lib-count').textContent = 'Loading…';
+  try {
+    const data = await api('/api/library/tracks?limit=5000');
+    LIB.all = data;
+    LIB.filtered = data;
+    LIB.loaded = true;
+
+    // Index by id for fast player lookup
+    for (const t of data) trackDataMap.set(String(t.id), t);
+
+    // Populate tag filter dropdown
+    const tags = new Set();
+    for (const t of data) (t.my_tags || []).forEach(tg => tags.add(tg));
+    const sel = document.getElementById('lib-tag-select');
+    [...tags].sort().forEach(tag => {
+      const opt = document.createElement('option');
+      opt.value = tag; opt.textContent = tag;
+      sel.appendChild(opt);
+    });
+
+    libRender();
+  } catch (e) {
+    document.getElementById('lib-count').textContent = `Error: ${e.message}`;
+  }
+}
+
+function libFilter(q) {
+  const query = (q || '').toLowerCase().trim();
+  const tag   = document.getElementById('lib-tag-select').value;
+  LIB.filtered = LIB.all.filter(t => {
+    if (tag && !(t.my_tags || []).includes(tag)) return false;
+    if (!query) return true;
+    return (
+      (t.title  || '').toLowerCase().includes(query) ||
+      (t.artist || '').toLowerCase().includes(query) ||
+      (t.genre  || '').toLowerCase().includes(query) ||
+      (t.key    || '').toLowerCase() === query
+    );
+  });
+  const scroll = document.getElementById('lib-scroll');
+  if (scroll) scroll.scrollTop = 0;
+  libRender();
+}
+
+function libRender() {
+  const scroll = document.getElementById('lib-scroll');
+  if (!scroll) return;
+  document.getElementById('lib-count').textContent =
+    `${LIB.filtered.length.toLocaleString()} tracks`;
+  document.getElementById('lib-spacer').style.height =
+    `${LIB.filtered.length * LIB.rowH}px`;
+  libRenderVisible(scroll);
+}
+
+function libRenderVisible(scroll) {
+  const top    = scroll.scrollTop;
+  const clientH = scroll.clientHeight || 600;
+  const start  = Math.max(0, Math.floor(top / LIB.rowH) - 5);
+  const end    = Math.min(LIB.filtered.length,
+                          Math.ceil((top + clientH) / LIB.rowH) + 5);
+
+  const inner = document.getElementById('lib-rows-inner');
+  inner.style.transform = `translateY(${start * LIB.rowH}px)`;
+
+  let html = '';
+  for (let i = start; i < end; i++) {
+    const t  = LIB.filtered[i];
+    const ec = !t.energy ? 'mid' : t.energy <= 4 ? 'low' : t.energy >= 8 ? 'high' : 'mid';
+    const tags = (t.my_tags || []).slice(0, 3).join(', ');
+    html += `<div class="lib-row" onclick="loadTrackInPlayer('${t.id}')">
+      <div style="min-width:0">
+        <div class="lib-row-title">${esc(t.title || '')}</div>
+        <div class="lib-row-artist">${esc(t.artist || '')}</div>
+      </div>
+      <div class="lib-row-cell">${t.bpm ? Math.round(t.bpm) : '—'}</div>
+      <div class="lib-row-cell" style="color:var(--accent);font-weight:600">${esc(t.key || '—')}</div>
+      <div class="lib-row-cell">
+        ${t.energy ? `<span class="pill pill-energy ${ec}" style="padding:1px 5px">${t.energy}</span>` : '—'}
+      </div>
+      <div class="lib-row-tags">${esc(tags)}</div>
+      <div class="lib-play-btn" onclick="event.stopPropagation();loadTrackInPlayer('${t.id}')" title="Load in player">▶</div>
+    </div>`;
+  }
+  inner.innerHTML = html;
+}
+
+// ── Player ─────────────────────────────────────────────────────────────────
+const PLAYER = {
+  trackId:    null,
+  trackMeta:  null,
+  audioBuffer: null,
+  waveData:   null,   // { low, mid, high } Float32Arrays
+  staticCanvas: null, // offscreen canvas — static layer
+  cues:       [],
+  phrases:    [],
+  duration:   0,
+  // Web Audio
+  ctx:        null,
+  gainNode:   null,
+  sourceNode: null,
+  playStartAt: 0,     // audioCtx.currentTime when start() was called
+  seekOffset:  0,     // track position (s) at last play/pause
+  playing:    false,
+  rafId:      null,
+  volume:     0.8,
+};
+
+const PHRASE_COLORS = {
+  Intro:  '#22c55e',
+  Up:     '#eab308',
+  Chorus: '#ef4444',
+  Down:   '#3b82f6',
+  Outro:  '#8b5cf6',
+  // legacy labels kept for backwards compat
+  Build: '#eab308', Drop: '#ef4444', Breakdown: '#3b82f6', Verse: '#06b6d4', Bridge: '#f97316',
+};
+
+async function loadTrackInPlayer(trackId) {
+  const meta = trackDataMap.get(String(trackId));
+  if (!meta) { showToast('Track not in library index', 'error'); return; }
+
+  playerStop();
+  PLAYER.trackId    = String(trackId);
+  PLAYER.trackMeta  = meta;
+  PLAYER.audioBuffer = null;
+  PLAYER.waveData   = null;
+  PLAYER.staticCanvas = null;
+  PLAYER.cues       = [];
+  PLAYER.phrases    = [];
+  PLAYER.seekOffset = 0;
+  PLAYER.duration   = 0;
+
+  switchTab('player', null);
+  renderPlayerHeader(meta);
+
+  document.getElementById('player-empty').style.display  = 'none';
+  document.getElementById('waveform-loading').style.display = 'flex';
+  document.getElementById('waveform-loading-msg').textContent = 'Loading audio…';
+  document.getElementById('phrase-btn').style.display    = 'inline-flex';
+  document.getElementById('seek-bar').value = 0;
+  document.getElementById('transport-time').textContent  = '0:00 / 0:00';
+  document.getElementById('player-phrase-bar').style.display = 'none';
+  document.getElementById('player-cue-list').innerHTML   =
+    '<span style="font-size:12px;color:var(--text-dim)">Loading…</span>';
+
+  try {
+    const [, cues] = await Promise.all([
+      fetchAndDecodeAudio(trackId),
+      api(`/api/track/${trackId}/cues`).catch(() => []),
+    ]);
+    PLAYER.cues     = cues || [];
+    PLAYER.phrases  = (cues || []).filter(c =>
+      Object.keys(PHRASE_COLORS).includes(c.comment));
+    PLAYER.duration = PLAYER.audioBuffer.duration;
+
+    document.getElementById('seek-bar').max = Math.ceil(PLAYER.duration);
+    updateTimeDisplay(0);
+
+    document.getElementById('waveform-loading-msg').textContent = 'Computing 3-band waveform…';
+    PLAYER.waveData = await compute3BandWaveform(PLAYER.audioBuffer);
+
+    document.getElementById('waveform-loading').style.display = 'none';
+    renderPhraseBar();
+    renderCueList();
+    resizeAndDrawWaveform();
+
+  } catch (e) {
+    document.getElementById('waveform-loading').style.display = 'none';
+    const el = document.getElementById('player-empty');
+    el.style.display = 'flex';
+    el.innerHTML = `<div class="empty-icon">⚠️</div><h3>Could not load audio</h3><p>${esc(e.message)}</p>`;
+  }
+}
+
+async function fetchAndDecodeAudio(trackId) {
+  const resp = await fetch(`/api/audio/${trackId}`);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} — file may be on an external drive`);
+  const buf = await resp.arrayBuffer();
+
+  if (!PLAYER.ctx) {
+    PLAYER.ctx = new AudioContext();
+    PLAYER.gainNode = PLAYER.ctx.createGain();
+    PLAYER.gainNode.gain.value = PLAYER.volume;
+    PLAYER.gainNode.connect(PLAYER.ctx.destination);
+  }
+  PLAYER.audioBuffer = await PLAYER.ctx.decodeAudioData(buf);
+  return PLAYER.audioBuffer;
+}
+
+function compute3BandWaveform(audioBuffer) {
+  return new Promise(resolve => {
+    requestAnimationFrame(() => {
+      const data  = audioBuffer.getChannelData(0);
+      const sr    = audioBuffer.sampleRate;
+      const n     = data.length;
+      // ~4000 display points regardless of track length
+      const chunk = Math.max(128, Math.floor(n / 4000));
+      const pts   = Math.ceil(n / chunk);
+
+      const low  = new Float32Array(pts);
+      const mid  = new Float32Array(pts);
+      const high = new Float32Array(pts);
+
+      // 1st-order IIR lowpass coefficients
+      // aL → 250 Hz boundary (bass)
+      // aM → 3000 Hz boundary (mid/high)
+      const aL = 1 - Math.exp(-2 * Math.PI * 250  / sr);
+      const aM = 1 - Math.exp(-2 * Math.PI * 3000 / sr);
+      let yL = 0, yM = 0;
+
+      for (let i = 0; i < pts; i++) {
+        const s = i * chunk;
+        const e = Math.min(s + chunk, n);
+        let sL = 0, sM = 0, sH = 0;
+        for (let j = s; j < e; j++) {
+          const x = data[j];
+          yL += aL * (x - yL);
+          yM += aM * (x - yM);
+          const lo = yL, md = yM - yL, hi = x - yM;
+          sL += lo * lo; sM += md * md; sH += hi * hi;
+        }
+        const cnt = e - s;
+        low[i]  = Math.sqrt(sL / cnt);
+        mid[i]  = Math.sqrt(sM / cnt);
+        high[i] = Math.sqrt(sH / cnt);
+      }
+      resolve({ low, mid, high, pts, chunk, sr });
+    });
+  });
+}
+
+function arrMax(arr) {
+  let m = 0;
+  for (let i = 0; i < arr.length; i++) if (arr[i] > m) m = arr[i];
+  return m || 1;
+}
+
+function renderPlayerHeader(meta) {
+  document.getElementById('player-title').textContent  = meta.title  || 'Unknown';
+  document.getElementById('player-artist').textContent = meta.artist || '';
+  const ec = !meta.energy ? 'mid' : meta.energy <= 4 ? 'low' : meta.energy >= 8 ? 'high' : 'mid';
+  document.getElementById('player-meta').innerHTML = `
+    ${meta.bpm    ? `<span class="pill pill-bpm">${Math.round(meta.bpm)} BPM</span>` : ''}
+    ${meta.key    ? `<span class="pill pill-key">${esc(meta.key)}</span>` : ''}
+    ${meta.energy ? `<span class="pill pill-energy ${ec}">E${meta.energy}</span>` : ''}
+  `;
+}
+
+function renderPhraseBar() {
+  const bar = document.getElementById('player-phrase-bar');
+  if (!PLAYER.phrases.length || !PLAYER.duration) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  let html = '';
+  PLAYER.phrases.forEach((p, i) => {
+    const next    = PLAYER.phrases[i + 1];
+    const col     = PHRASE_COLORS[p.comment] || '#555';
+    const startS  = p.time_ms / 1000;
+    const endS    = next ? next.time_ms / 1000 : PLAYER.duration;
+    const widthPct = ((endS - startS) / PLAYER.duration * 100).toFixed(2);
+    html += `<div class="phrase-seg" style="background:${col};flex:0 0 ${widthPct}%;min-width:0"
+      onclick="playerSeekTo(${startS / PLAYER.duration})"
+      title="${esc(p.comment)} — ${fmtTime(startS)}"
+    >${parseFloat(widthPct) > 4 ? esc(p.comment) : ''}</div>`;
+  });
+  bar.innerHTML = html;
+}
+
+function renderCueList() {
+  const el = document.getElementById('player-cue-list');
+  if (!PLAYER.cues.length) {
+    el.innerHTML = '<span style="font-size:12px;color:var(--text-dim)">No cue points — click ⚡ to detect phrases</span>';
+    return;
+  }
+  const sorted = [...PLAYER.cues].sort((a, b) => a.time_ms - b.time_ms);
+  el.innerHTML = sorted.map(c => {
+    const isPhrase = Object.keys(PHRASE_COLORS).includes(c.comment);
+    const label = c.comment || 'Cue';
+    const t = c.time_ms / 1000;
+    const frac = PLAYER.duration > 0 ? t / PLAYER.duration : 0;
+    return `<span class="cue-chip${isPhrase ? ' phrase' : ''}"
+      onclick="playerSeekTo(${frac})"
+      title="${esc(label)}"
+    >${fmtTime(t)} ${esc(label)}</span>`;
+  }).join('');
+}
+
+// ── Waveform rendering ─────────────────────────────────────────────────────
+function resizeAndDrawWaveform() {
+  const canvas = document.getElementById('waveform-canvas');
+  const wrap   = canvas.parentElement;
+  const dpr    = window.devicePixelRatio || 1;
+  canvas.width  = wrap.clientWidth  * dpr;
+  canvas.height = wrap.clientHeight * dpr;
+  // Rebuild static layer
+  PLAYER.staticCanvas = null;
+  drawWaveform();
+}
+
+function buildStaticLayer(W, H, dpr) {
+  const oc  = document.createElement('canvas');
+  oc.width  = W * dpr;
+  oc.height = H * dpr;
+  const ctx = oc.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const wd = PLAYER.waveData;
+  ctx.fillStyle = '#0d0d0f';
+  ctx.fillRect(0, 0, W, H);
+
+  if (!wd) return oc;
+
+  const AXIS_H   = 20;
+  const bandsH   = H - AXIS_H;
+  const BAND_H   = Math.floor(bandsH / 3);
+
+  const bands = [
+    { data: wd.high, color: '#c4b5fd', label: 'HI',  y: 0 },
+    { data: wd.mid,  color: '#60a5fa', label: 'MID', y: BAND_H },
+    { data: wd.low,  color: '#f97316', label: 'LOW', y: BAND_H * 2 },
+  ];
+
+  bands.forEach(({ data, color, label, y }, i) => {
+    drawBand(ctx, data, W, y, BAND_H, color, arrMax(data));
+
+    ctx.fillStyle = 'rgba(255,255,255,.18)';
+    ctx.font = `bold 9px -apple-system,sans-serif`;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, 5, y + BAND_H / 2);
+
+    if (i < 2) {
+      ctx.strokeStyle = 'rgba(255,255,255,.07)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, y + BAND_H); ctx.lineTo(W, y + BAND_H); ctx.stroke();
+    }
+  });
+
+  drawCueMarkers(ctx, W, 0, bandsH);
+  drawTimeAxis(ctx, W, H - AXIS_H, H, PLAYER.duration);
+
+  return oc;
+}
+
+function drawWaveform() {
+  const canvas = document.getElementById('waveform-canvas');
+  const dpr    = window.devicePixelRatio || 1;
+  const W      = canvas.width  / dpr;
+  const H      = canvas.height / dpr;
+  const ctx    = canvas.getContext('2d');
+
+  ctx.save();
+  ctx.scale(dpr, dpr);
+
+  if (!PLAYER.waveData) { ctx.restore(); return; }
+
+  // Build static layer once, reuse on every RAF tick
+  if (!PLAYER.staticCanvas) PLAYER.staticCanvas = buildStaticLayer(W, H, dpr);
+  ctx.drawImage(PLAYER.staticCanvas, 0, 0, W, H);
+
+  // Playhead (dynamic only)
+  const AXIS_H = 20;
+  const t = playerCurrentTime();
+  if (PLAYER.duration > 0) {
+    const x = (t / PLAYER.duration) * W;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth   = 1.5;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(x, 0); ctx.lineTo(x, H - AXIS_H);
+    ctx.stroke();
+    // Triangle marker
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(x, 0); ctx.lineTo(x - 5, -8); ctx.lineTo(x + 5, -8);
+    ctx.closePath(); ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawBand(ctx, data, W, y, H, color, maxVal) {
+  const n  = data.length;
+  const cy = y + H / 2;
+  const hh = H * 0.46;
+
+  const grd = ctx.createLinearGradient(0, y, 0, y + H);
+  grd.addColorStop(0,    color + '18');
+  grd.addColorStop(0.35, color + 'bb');
+  grd.addColorStop(0.5,  color);
+  grd.addColorStop(0.65, color + 'bb');
+  grd.addColorStop(1,    color + '18');
+  ctx.fillStyle = grd;
+
+  ctx.beginPath();
+  for (let i = 0; i <= W; i++) {
+    const v  = (data[Math.min(Math.floor(i * n / W), n - 1)] || 0) / maxVal;
+    const bh = v * hh;
+    if (i === 0) ctx.moveTo(0, cy - bh); else ctx.lineTo(i, cy - bh);
+  }
+  for (let i = W; i >= 0; i--) {
+    const v  = (data[Math.min(Math.floor(i * n / W), n - 1)] || 0) / maxVal;
+    const bh = v * hh;
+    ctx.lineTo(i, cy + bh);
+  }
+  ctx.closePath(); ctx.fill();
+}
+
+function drawCueMarkers(ctx, W, yTop, yBot) {
+  if (!PLAYER.cues.length || !PLAYER.duration) return;
+  for (const c of PLAYER.cues) {
+    const isPhrase = Object.keys(PHRASE_COLORS).includes(c.comment);
+    if (isPhrase) continue;   // phrases shown in phrase bar
+    const x     = Math.round((c.time_ms / 1000 / PLAYER.duration) * W) + 0.5;
+    const isHot = (c.kind || 0) > 0;
+    ctx.strokeStyle = isHot ? '#facc15cc' : 'rgba(255,255,255,.5)';
+    ctx.lineWidth   = isHot ? 1.5 : 1;
+    ctx.setLineDash(isHot ? [] : [3, 3]);
+    ctx.beginPath(); ctx.moveTo(x, yTop); ctx.lineTo(x, yBot); ctx.stroke();
+    ctx.setLineDash([]);
+    if (c.comment) {
+      ctx.fillStyle = isHot ? '#facc15' : 'rgba(255,255,255,.45)';
+      ctx.font = '9px -apple-system,sans-serif';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(c.comment.slice(0, 7), x + 2, yTop + 2);
+    }
+  }
+}
+
+function drawTimeAxis(ctx, W, y, H, duration) {
+  if (!duration) return;
+  ctx.fillStyle = '#131318';
+  ctx.fillRect(0, y, W, H - y);
+  ctx.fillStyle = 'rgba(255,255,255,.2)';
+  ctx.font = '9px -apple-system,sans-serif'; ctx.textBaseline = 'middle';
+  const step = duration <= 300 ? 30 : duration <= 900 ? 60 : 120;
+  for (let t = 0; t <= duration; t += step) {
+    const x = (t / duration) * W;
+    ctx.textAlign = t === 0 ? 'left' : (t + step > duration ? 'right' : 'center');
+    ctx.fillText(fmtTime(t), x, y + (H - y) / 2);
+    ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 4); ctx.stroke();
+  }
+}
+
+// ── Playback ───────────────────────────────────────────────────────────────
+function playerCurrentTime() {
+  if (!PLAYER.playing || !PLAYER.ctx) return PLAYER.seekOffset;
+  return PLAYER.seekOffset + (PLAYER.ctx.currentTime - PLAYER.playStartAt);
+}
+
+function playerTogglePlay() {
+  if (PLAYER.playing) playerPause(); else playerPlay();
+}
+
+function playerPlay() {
+  if (!PLAYER.audioBuffer || PLAYER.playing) return;
+  if (PLAYER.ctx.state === 'suspended') PLAYER.ctx.resume();
+  PLAYER.sourceNode = PLAYER.ctx.createBufferSource();
+  PLAYER.sourceNode.buffer = PLAYER.audioBuffer;
+  PLAYER.sourceNode.connect(PLAYER.gainNode);
+  const offset = Math.max(0, Math.min(PLAYER.seekOffset, PLAYER.duration - 0.05));
+  PLAYER.sourceNode.start(0, offset);
+  PLAYER.playStartAt = PLAYER.ctx.currentTime;
+  PLAYER.playing     = true;
+  PLAYER.sourceNode.onended = () => {
+    PLAYER.playing    = false;
+    PLAYER.seekOffset = 0;
+    document.getElementById('play-btn').textContent = '▶';
+    document.getElementById('seek-bar').value = 0;
+    updateTimeDisplay(0);
+    drawWaveform();
+  };
+  document.getElementById('play-btn').textContent = '⏸';
+  playerRafLoop();
+}
+
+function playerPause() {
+  if (!PLAYER.playing) return;
+  PLAYER.seekOffset += PLAYER.ctx.currentTime - PLAYER.playStartAt;
+  PLAYER.seekOffset  = Math.min(PLAYER.seekOffset, PLAYER.duration);
+  PLAYER.sourceNode.onended = null;
+  try { PLAYER.sourceNode.stop(); } catch (_) {}
+  PLAYER.playing = false;
+  if (PLAYER.rafId) cancelAnimationFrame(PLAYER.rafId);
+  document.getElementById('play-btn').textContent = '▶';
+  drawWaveform();
+}
+
+function playerStop() {
+  if (PLAYER.playing && PLAYER.sourceNode) {
+    PLAYER.sourceNode.onended = null;
+    try { PLAYER.sourceNode.stop(); } catch (_) {}
+  }
+  PLAYER.playing    = false;
+  PLAYER.seekOffset = 0;
+  if (PLAYER.rafId) cancelAnimationFrame(PLAYER.rafId);
+  document.getElementById('play-btn').textContent = '▶';
+}
+
+function playerSeekTo(fraction) {
+  const t          = fraction * PLAYER.duration;
+  const wasPlaying = PLAYER.playing;
+  if (wasPlaying) {
+    PLAYER.sourceNode.onended = null;
+    try { PLAYER.sourceNode.stop(); } catch (_) {}
+    PLAYER.playing = false;
+  }
+  PLAYER.seekOffset = Math.max(0, Math.min(t, PLAYER.duration));
+  if (wasPlaying) playerPlay(); else drawWaveform();
+  updateTimeDisplay(PLAYER.seekOffset);
+  document.getElementById('seek-bar').value =
+    PLAYER.duration > 0 ? PLAYER.seekOffset : 0;
+}
+
+function playerSkipBack() {
+  const barS = PLAYER.trackMeta?.bpm ? 4 * 60 / PLAYER.trackMeta.bpm : 4;
+  playerSeekTo(Math.max(0, playerCurrentTime() - barS * 8) / (PLAYER.duration || 1));
+}
+function playerSkipFwd() {
+  const barS = PLAYER.trackMeta?.bpm ? 4 * 60 / PLAYER.trackMeta.bpm : 4;
+  playerSeekTo(Math.min(PLAYER.duration, playerCurrentTime() + barS * 8) / (PLAYER.duration || 1));
+}
+function playerSetVolume(v) {
+  PLAYER.volume = v;
+  if (PLAYER.gainNode) PLAYER.gainNode.gain.value = v;
+}
+
+function playerRafLoop() {
+  if (!PLAYER.playing) return;
+  PLAYER.rafId = requestAnimationFrame(playerRafLoop);
+  const t = playerCurrentTime();
+  updateTimeDisplay(t);
+  if (PLAYER.duration > 0)
+    document.getElementById('seek-bar').value = t;
+  drawWaveform();
+}
+
+function updateTimeDisplay(t) {
+  document.getElementById('transport-time').textContent =
+    `${fmtTime(t)} / ${fmtTime(PLAYER.duration || 0)}`;
+}
+
+function fmtTime(s) {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60).toString().padStart(2, '0');
+  return `${m}:${sec}`;
+}
+
+// ── Phrase analysis ────────────────────────────────────────────────────────
+async function runPhraseAnalysis() {
+  const btn = document.getElementById('phrase-btn');
+  if (!PLAYER.trackId) return;
+  btn.textContent = '⏳ Analyzing…';
+  btn.disabled = true;
+  try {
+    await api(`/api/track/${PLAYER.trackId}/analyze-phrases`, {
+      method: 'POST',
+      body: JSON.stringify({ replace: true }),
+    });
+    // Reload cues from DB
+    PLAYER.cues    = await api(`/api/track/${PLAYER.trackId}/cues`).catch(() => []);
+    PLAYER.phrases = PLAYER.cues.filter(c => Object.keys(PHRASE_COLORS).includes(c.comment));
+    renderPhraseBar();
+    renderCueList();
+    // Rebuild static layer with new cue markers
+    PLAYER.staticCanvas = null;
+    drawWaveform();
+    showToast(`⚡ ${PLAYER.phrases.length} phrase sections detected`, 'success');
+  } catch (e) {
+    showToast(`❌ Phrase analysis failed: ${e.message}`, 'error');
+  } finally {
+    btn.textContent = '⚡ Re-analyze';
+    btn.disabled = false;
+  }
+}
+
+// ── Player canvas event wiring (runs once after DOM is ready) ─────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // Waveform seek on click
+  document.getElementById('waveform-canvas').addEventListener('click', e => {
+    if (!PLAYER.waveData) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    playerSeekTo(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)));
+  });
+
+  // Library virtual scroll
+  const libScroll = document.getElementById('lib-scroll');
+  libScroll.addEventListener('scroll', () => libRenderVisible(libScroll), { passive: true });
+
+  // Resize → redraw waveform
+  window.addEventListener('resize', () => {
+    if (PLAYER.waveData) resizeAndDrawWaveform();
+  });
+});
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 init();
