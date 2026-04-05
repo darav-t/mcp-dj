@@ -50,7 +50,7 @@ SECTION_COLOR: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# Data model
+# Data models
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -586,3 +586,145 @@ def _generate_cue_id(content_id: str, time_ms: int) -> int:
     for byte in data:
         h = ((h ^ byte) * prime) & 0xFFFFFFFF
     return max(100_000, h)
+
+
+# ---------------------------------------------------------------------------
+# Mix profile — DJ transition parameters derived from phrase structure
+# ---------------------------------------------------------------------------
+
+@dataclass
+class MixProfile:
+    """
+    Key mixing parameters derived from phrase detection.
+
+    These values tell the set-generation algorithm WHERE and HOW to
+    transition between tracks — matching the patterns professional DJs use:
+
+      Standard blend  : outgoing plays until its Outro, incoming starts at bar 1
+      Drop-to-drop    : both Chorus sections aligned (short intros only)
+      Breakdown entry : incoming starts from its first Down to preview melody
+
+    Research basis (typical EDM mixing):
+      - Intro/Outro blend: 32-64 bars for techno/melodic, 16-32 for tech house
+      - Bass swap at phrase boundary (8-bar window)
+      - Never cut during Chorus — respect the drop
+      - Rebuild (Up) after Down signals incoming drop is approaching
+    """
+
+    # ── Key timing markers (ms from track start) ─────────────────────────────
+    intro_end_ms: int          # First non-Intro section (start of build/up phase)
+    pre_drop_ms: int           # Total pre-chorus duration (mixing runway for incoming)
+    first_chorus_ms: int       # First Chorus/drop time (0 = no chorus detected)
+    first_down_ms: int         # First Down after first Chorus (0 = none)
+    second_chorus_ms: int      # Second Chorus start (0 = none)
+    outro_start_ms: int        # When Outro begins (recommended mix-out point)
+
+    # ── Bar counts ────────────────────────────────────────────────────────────
+    pre_drop_bars: int         # Bars before first drop (how long the DJ has to blend in)
+    outro_bars: int            # Bars of outro (how long the DJ has to blend out)
+    bar_duration_ms: float     # ms per bar at this track's BPM
+
+    # ── Recommended transition parameters ────────────────────────────────────
+    mix_in_ms: int             # Where to cue this track (0 = from start)
+    mix_out_ms: int            # Where outgoing should end (= outro_start_ms)
+    blend_bars: int            # Recommended overlap in bars (16-64)
+    blend_ms: int              # blend_bars × bar_duration_ms
+    preferred_transition: str  # "blend" | "drop_to_drop" | "breakdown_entry"
+
+
+def derive_mix_profile(
+    cues: List[PhraseCue],
+    bpm: float,
+    duration_s: float,
+) -> MixProfile:
+    """
+    Compute DJ mix parameters from phrase detection output.
+
+    Parameters
+    ----------
+    cues        : List[PhraseCue] from PhraseDetector.detect()
+    bpm         : Track BPM (for bar duration calculations)
+    duration_s  : Track length in seconds
+
+    Returns
+    -------
+    MixProfile with all key mixing parameters populated.
+    """
+    bar_dur_ms   = (4.0 * 60.0 / bpm) * 1000 if bpm > 0 else 8_000.0
+    duration_ms  = int(duration_s * 1000)
+
+    intro_end_ms      = duration_ms  # Default: track is all Intro
+    first_chorus_ms   = 0
+    first_down_ms     = 0
+    second_chorus_ms  = 0
+    outro_start_ms    = duration_ms
+    _first_chorus_seen = False
+    _down_after_chorus = False
+
+    for c in cues:
+        # First non-Intro section = end of intro phase
+        if c.label != "Intro" and intro_end_ms == duration_ms:
+            intro_end_ms = c.time_ms
+
+        if c.label == "Chorus":
+            if not _first_chorus_seen:
+                first_chorus_ms  = c.time_ms
+                _first_chorus_seen = True
+            elif _down_after_chorus and second_chorus_ms == 0:
+                second_chorus_ms = c.time_ms
+
+        if c.label == "Down" and _first_chorus_seen and not _down_after_chorus:
+            first_down_ms     = c.time_ms
+            _down_after_chorus = True
+
+        if c.label == "Outro" and outro_start_ms == duration_ms:
+            outro_start_ms = c.time_ms
+
+    # Pre-drop = all time before first Chorus (intro + all Up sections before drop)
+    pre_drop_ms   = first_chorus_ms if first_chorus_ms > 0 else duration_ms
+    pre_drop_bars = max(1, int(pre_drop_ms / bar_dur_ms))
+    outro_bars    = max(0, int((duration_ms - outro_start_ms) / bar_dur_ms))
+
+    # ── Recommended blend length ──────────────────────────────────────────────
+    # Based on genre conventions (research):
+    #   ≥ 64 bars pre-drop → 64-bar blend (classic techno/prog house)
+    #   ≥ 32 bars           → 32-bar blend
+    #   ≥ 16 bars           → 16-bar blend
+    #   < 16 bars           → 8-bar quick mix or drop-to-drop
+    if pre_drop_bars >= 64:
+        ideal = 64
+    elif pre_drop_bars >= 32:
+        ideal = 32
+    elif pre_drop_bars >= 16:
+        ideal = 16
+    else:
+        ideal = max(8, pre_drop_bars)
+
+    # Can't blend longer than the outgoing track's outro (it won't have material)
+    blend_bars = max(8, min(ideal, max(outro_bars, 8)))
+    blend_ms   = int(blend_bars * bar_dur_ms)
+
+    # ── Preferred transition type ─────────────────────────────────────────────
+    if pre_drop_bars >= 32 and outro_bars >= 16:
+        preferred_transition = "blend"           # Full intro/outro blend
+    elif pre_drop_bars < 16 and first_chorus_ms > 0:
+        preferred_transition = "drop_to_drop"    # Short intro — align drops
+    else:
+        preferred_transition = "blend"
+
+    return MixProfile(
+        intro_end_ms      = intro_end_ms,
+        pre_drop_ms       = pre_drop_ms,
+        first_chorus_ms   = first_chorus_ms,
+        first_down_ms     = first_down_ms,
+        second_chorus_ms  = second_chorus_ms,
+        outro_start_ms    = outro_start_ms,
+        pre_drop_bars     = pre_drop_bars,
+        outro_bars        = outro_bars,
+        bar_duration_ms   = bar_dur_ms,
+        mix_in_ms         = 0,
+        mix_out_ms        = outro_start_ms,
+        blend_bars        = blend_bars,
+        blend_ms          = blend_ms,
+        preferred_transition = preferred_transition,
+    )

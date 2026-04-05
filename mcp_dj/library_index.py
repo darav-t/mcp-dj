@@ -683,6 +683,19 @@ def _build_text_field(record: dict) -> str:
     if src and src != "none":
         parts.append(f"energy_source:{src}")
 
+    mp = record.get("mix_profile", {})
+    if mp:
+        if mp.get("preferred_transition"):
+            parts.append(f"transition:{mp['preferred_transition']}")
+        if mp.get("pre_drop_bars"):
+            parts.append(f"intro_bars:{mp['pre_drop_bars']}")
+        if mp.get("blend_bars"):
+            parts.append(f"blend_bars:{mp['blend_bars']}")
+    phrases = record.get("phrases", [])
+    unique_labels = {p["label"] for p in phrases if "label" in p}
+    for label in unique_labels:
+        parts.append(f"phrase:{label}")
+
     return " ".join(p for p in parts if p)
 
 
@@ -1120,6 +1133,37 @@ class LibraryIndex:
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
         tmp.replace(self._record_path)
         return len(records_snapshot)
+
+    def update_phrase_data(
+        self,
+        track_id: str,
+        phrases: list,
+        mix_profile: dict,
+    ) -> bool:
+        """
+        Patch an existing record in memory with phrase detection results.
+
+        Sets ``record["phrases"]`` and ``record["mix_profile"]``, then
+        rebuilds ``_text`` so phrase labels become searchable (e.g. ``phrase:Chorus``).
+
+        Parameters
+        ----------
+        track_id    : Rekordbox track ID string.
+        phrases     : List of dicts with keys time_ms, label, bar_number, color.
+        mix_profile : Dict from MixProfile (pre_drop_bars, blend_bars, etc.).
+
+        Returns
+        -------
+        True if the record existed and was updated, False if track_id not found.
+        """
+        with self._lock:
+            record = self._by_id.get(str(track_id))
+            if record is None:
+                return False
+            record["phrases"]     = phrases
+            record["mix_profile"] = mix_profile
+            record["_text"]       = _build_text_field(record)
+        return True
 
     # ------------------------------------------------------------------
     # Repr

@@ -16,6 +16,7 @@ from loguru import logger
 from .models import (
     TrackWithEnergy,
     SetlistTrack,
+    MixPlan,
     Setlist,
     SetlistRequest,
     NextTrackRecommendation,
@@ -31,6 +32,14 @@ try:
     from .essentia_analyzer import EssentiaFeatureStore
 except ImportError:
     EssentiaFeatureStore = None
+
+# Optional — phrase store for DJ mix planning
+try:
+    from .phrase_store import PhraseStore, plan_transition
+    _HAS_PHRASE_STORE = True
+except ImportError:
+    PhraseStore = None  # type: ignore
+    _HAS_PHRASE_STORE = False
 
 
 # ---------------------------------------------------------------------------
@@ -102,11 +111,13 @@ class SetlistEngine:
         camelot: Optional[CamelotWheel] = None,
         energy_planner: Optional[EnergyPlanner] = None,
         essentia_store=None,
+        phrase_store=None,
     ):
         self.camelot = camelot or CamelotWheel()
         self.planner = energy_planner or EnergyPlanner()
         self.tracks: List[TrackWithEnergy] = []
         self.essentia_store = essentia_store  # EssentiaFeatureStore or None
+        self.phrase_store   = phrase_store   # PhraseStore or None
 
         # Indices for fast lookup
         self.by_key: Dict[str, List[TrackWithEnergy]] = defaultdict(list)
@@ -246,6 +257,9 @@ class SetlistEngine:
             bpm_delta = best_track.bpm - current.bpm if current.bpm > 0 else 0.0
             energy_delta = self._effective_energy(best_track) - self._effective_energy(current)
 
+            # Compute DJ mix plan from phrase data (if available)
+            mix_plan = self._compute_mix_plan(current, best_track, position_pct)
+
             setlist_tracks.append(
                 SetlistTrack(
                     position=pos,
@@ -255,6 +269,7 @@ class SetlistEngine:
                     key_relation=best_meta[2],
                     energy_delta=energy_delta,
                     notes=self._transition_note(best_meta[2], bpm_delta, energy_delta),
+                    mix_plan=mix_plan,
                 )
             )
 
@@ -572,10 +587,16 @@ class SetlistEngine:
             tags_sim = self._music_tags_similarity(ess_current, ess)
             tags_sim = tags_sim if tags_sim is not None else 0.5
 
+            # Phrase mix compatibility bonus (0–1):
+            # Rewards candidates whose intro length makes for a clean blend with
+            # the current track's outro. Tracks with long intros (≥32 bars) get
+            # a bonus because they give the DJ more runway to EQ-mix smoothly.
+            phrase_score = self._phrase_blend_score(current_track, candidate)
+
             # Full metadata scoring — all dimensions
             total = (
-                0.24 * h_score * key_confidence  # harmonic (key confidence weighted)
-                + 0.18 * energy_score * source_weight  # energy (source reliability weighted)
+                0.23 * h_score * key_confidence  # harmonic (key confidence weighted)
+                + 0.17 * energy_score * source_weight  # energy (source reliability weighted)
                 + 0.10 * bpm_score               # BPM (proximity + curve)
                 + 0.09 * genre_score             # genre (phase-aware if phases provided)
                 + 0.07 * mood_sim                # track-to-track mood vector match
@@ -586,17 +607,22 @@ class SetlistEngine:
                 + 0.03 * loudness_range_sim      # dynamic range matching
                 + 0.03 * color_score             # color → energy/mood alignment
                 + 0.03 * diversity               # artist/genre repetition penalty
+                + 0.03 * phrase_score            # phrase blend compatibility
                 + 0.02 * quality                 # rating + play_count
-                + 0.02                           # essentia data availability bonus
+                + 0.01                           # essentia data availability bonus
             )
         else:
+            # Phrase mix compatibility bonus (works without Essentia)
+            phrase_score = self._phrase_blend_score(current_track, candidate)
+
             # --- No Essentia data: metadata-only weights
             total = (
-                0.30 * h_score
-                + 0.25 * energy_score
+                0.29 * h_score
+                + 0.24 * energy_score
                 + 0.13 * bpm_score
                 + 0.10 * genre_score
                 + 0.06 * my_tag_sim              # My Tags still available without Essentia
+                + 0.04 * phrase_score            # phrase blend compatibility
                 + 0.04 * diversity
                 + 0.04 * quality
                 + 0.04 * color_score             # Color still available without Essentia
@@ -604,7 +630,7 @@ class SetlistEngine:
             # Blend BPM curve if available (works without Essentia)
             if bpm_curve:
                 bpm_curve_sc = self._bpm_curve_score(candidate.bpm, position_pct, bpm_curve)
-                total += 0.04 * bpm_curve_sc
+                total += 0.02 * bpm_curve_sc
 
         return (total, h_score, rel)
 
@@ -986,6 +1012,99 @@ class SetlistEngine:
             ) if harmonic_scores else 0.0,
             generation_prompt=request.prompt,
         )
+
+    @staticmethod
+    def _compute_mix_plan(
+        self,
+        outgoing: TrackWithEnergy,
+        incoming: TrackWithEnergy,
+        position_pct: float,
+    ) -> Optional[MixPlan]:
+        """
+        Compute the DJ transition plan between two tracks using phrase data.
+
+        Returns None if phrase data is unavailable for either track.
+        Uses standard DJ mixing patterns:
+          - blend          : 32-64 bar intro/outro overlap (default)
+          - drop_to_drop   : align drops, used at peak time with short intros
+          - breakdown_entry: start incoming from its breakdown (melodic teaser)
+        """
+        if not self.phrase_store:
+            return None
+
+        out_profile = self.phrase_store.get_mix_profile(str(outgoing.id))
+        in_profile  = self.phrase_store.get_mix_profile(str(incoming.id))
+
+        if not out_profile or not in_profile:
+            return None  # No phrase data — fall back to metadata-only transition
+
+        plan = plan_transition(out_profile, in_profile, set_phase=position_pct)
+
+        return MixPlan(
+            transition_type      = plan["transition_type"],
+            outgoing_mix_out_ms  = plan["outgoing_mix_out_ms"],
+            incoming_mix_in_ms   = plan["incoming_mix_in_ms"],
+            overlap_bars         = plan["overlap_bars"],
+            overlap_ms           = plan["overlap_ms"],
+            bass_swap_ms         = plan["bass_swap_ms"],
+            notes                = plan["notes"],
+            incoming_first_chorus_ms = in_profile.first_chorus_ms,
+            incoming_pre_drop_bars   = in_profile.pre_drop_bars,
+            outgoing_outro_bars      = out_profile.outro_bars,
+        )
+
+    def _phrase_blend_score(
+        self,
+        current: TrackWithEnergy,
+        candidate: TrackWithEnergy,
+    ) -> float:
+        """
+        Score how well the candidate's structure supports a clean mix transition.
+
+        Rewards:
+          - Candidate has a long intro (≥32 bars) → DJ has plenty of runway to blend in
+          - Current track has a long outro (≥16 bars) → outgoing has space to fade out
+          - Both have phrase data (blend is possible at all)
+          - Compatible blend lengths (no huge mismatch)
+
+        Returns 0.5 (neutral) when phrase data is unavailable for either track.
+        """
+        if not self.phrase_store:
+            return 0.5
+
+        out_profile = self.phrase_store.get_mix_profile(str(current.id))
+        in_profile  = self.phrase_store.get_mix_profile(str(candidate.id))
+
+        if not out_profile or not in_profile:
+            return 0.5  # No data — neutral
+
+        # Score incoming intro length (0 = very short, 1 = long DJ-friendly intro)
+        pre_drop = in_profile.pre_drop_bars
+        if pre_drop >= 64:
+            intro_score = 1.0
+        elif pre_drop >= 32:
+            intro_score = 0.85
+        elif pre_drop >= 16:
+            intro_score = 0.65
+        else:
+            intro_score = 0.3   # Short intro — harder to blend, needs drop-to-drop
+
+        # Score outgoing outro length (space to fade out)
+        outro = out_profile.outro_bars
+        if outro >= 32:
+            outro_score = 1.0
+        elif outro >= 16:
+            outro_score = 0.8
+        elif outro >= 8:
+            outro_score = 0.6
+        else:
+            outro_score = 0.3
+
+        # Blend compatibility: ratio of overlap bars each can support
+        possible_overlap = min(in_profile.pre_drop_bars, out_profile.outro_bars)
+        overlap_score = min(1.0, possible_overlap / 32.0)
+
+        return 0.35 * intro_score + 0.35 * outro_score + 0.30 * overlap_score
 
     @staticmethod
     def _transition_note(rel: str, bpm_delta: float, energy_delta: int) -> str:

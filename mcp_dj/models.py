@@ -258,6 +258,36 @@ class MoodTarget(BaseModel):
 # Setlist models
 # ---------------------------------------------------------------------------
 
+class MixPlan(BaseModel):
+    """
+    DJ transition plan between two consecutive tracks.
+
+    Tells the mixer WHERE and HOW to transition:
+      - outgoing_mix_out_ms : when to start fading the outgoing track (its outro)
+      - incoming_mix_in_ms  : when to start the incoming track (usually 0)
+      - overlap_bars        : how many bars both tracks play simultaneously
+      - transition_type     : "blend" | "drop_to_drop" | "breakdown_entry"
+      - bass_swap_ms        : recommended bass EQ swap point
+
+    Based on standard DJ mixing patterns for electronic music:
+      blend          — 32-64 bar intro/outro overlap (default for techno/prog house)
+      drop_to_drop   — align both drops for maximum impact (peak time, short intros)
+      breakdown_entry — incoming starts from its breakdown to preview melody
+    """
+    transition_type:     str   = Field("blend", description="blend | drop_to_drop | breakdown_entry")
+    outgoing_mix_out_ms: int   = Field(0, description="When outgoing track should end (ms)")
+    incoming_mix_in_ms:  int   = Field(0, description="Where to cue incoming track (ms, usually 0)")
+    overlap_bars:        int   = Field(32, description="Bars of simultaneous playback")
+    overlap_ms:          int   = Field(0, description="Overlap duration in ms")
+    bass_swap_ms:        int   = Field(0, description="Recommended bass swap point in outgoing track")
+    notes:               str   = Field("", description="Human-readable transition description")
+
+    # Incoming track's key structure reference points
+    incoming_first_chorus_ms:  int = Field(0, description="Incoming track's first drop (ms)")
+    incoming_pre_drop_bars:    int = Field(0, description="Incoming track's intro+build length (bars)")
+    outgoing_outro_bars:       int = Field(0, description="Outgoing track's outro length (bars)")
+
+
 class SetlistTrack(BaseModel):
     """A track placed in a setlist with transition metadata."""
 
@@ -268,6 +298,7 @@ class SetlistTrack(BaseModel):
     key_relation: str = Field("", description="same, adjacent, inner_outer, energy_boost, incompatible")
     energy_delta: int = Field(0, description="Energy change from previous")
     notes: str = Field("", description="Transition notes")
+    mix_plan: Optional["MixPlan"] = Field(None, description="DJ transition plan (populated when phrase data available)")
 
 
 class Setlist(BaseModel):

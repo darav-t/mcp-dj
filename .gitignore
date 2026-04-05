@@ -68,3 +68,4 @@ Thumbs.db
 .data/dj_history/*
 .data/library_map.json
 .claude/launch.json
+.data/phrase_cache/

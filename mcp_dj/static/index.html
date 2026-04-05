@@ -501,6 +501,12 @@
     .player-title  { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .player-artist { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
     .player-track-meta { display: flex; gap: 5px; align-items: center; flex-shrink: 0; }
+    .mix-profile-bar {
+      padding: 5px 14px; display: flex; gap: 16px; align-items: center;
+      font-size: 11px; color: var(--text-muted); flex-shrink: 0;
+      border-bottom: 1px solid var(--border); background: var(--surface);
+    }
+    .mix-profile-bar span { white-space: nowrap; cursor: default; }
     .player-phrase-bar {
       height: 26px; display: none; overflow: hidden; flex-shrink: 0;
       border-bottom: 1px solid var(--border);
@@ -781,6 +787,7 @@ Try asking me:
             style="font-size:11px;padding:4px 11px;display:none;">⚡ Analyze Phrases</button>
         </div>
         <div class="player-phrase-bar" id="player-phrase-bar"></div>
+        <div class="mix-profile-bar" id="mix-profile-bar" style="display:none"></div>
         <div class="player-waveform-wrap">
           <canvas id="waveform-canvas" class="waveform-canvas"></canvas>
           <div class="waveform-loading" id="waveform-loading">
@@ -1819,6 +1826,7 @@ const PLAYER = {
   staticCanvas: null, // offscreen canvas — static layer
   cues:       [],
   phrases:    [],
+  mixProfile: null,   // MixProfile from phrase store (blend_bars, transition type, etc.)
   duration:   0,
   // Web Audio
   ctx:        null,
@@ -1853,6 +1861,7 @@ async function loadTrackInPlayer(trackId) {
   PLAYER.staticCanvas = null;
   PLAYER.cues       = [];
   PLAYER.phrases    = [];
+  PLAYER.mixProfile = null;
   PLAYER.seekOffset = 0;
   PLAYER.duration   = 0;
 
@@ -1870,13 +1879,15 @@ async function loadTrackInPlayer(trackId) {
     '<span style="font-size:12px;color:var(--text-dim)">Loading…</span>';
 
   try {
-    const [, cues] = await Promise.all([
+    const [, cues, phraseData] = await Promise.all([
       fetchAndDecodeAudio(trackId),
       api(`/api/track/${trackId}/cues`).catch(() => []),
+      api(`/api/track/${trackId}/phrases`).catch(() => null),
     ]);
     PLAYER.cues     = cues || [];
     PLAYER.phrases  = (cues || []).filter(c =>
       Object.keys(PHRASE_COLORS).includes(c.comment));
+    PLAYER.mixProfile = phraseData?.mix_profile || null;
     PLAYER.duration = PLAYER.audioBuffer.duration;
 
     document.getElementById('seek-bar').max = Math.ceil(PLAYER.duration);
@@ -1888,6 +1899,7 @@ async function loadTrackInPlayer(trackId) {
     document.getElementById('waveform-loading').style.display = 'none';
     renderPhraseBar();
     renderCueList();
+    renderMixProfile();
     resizeAndDrawWaveform();
 
   } catch (e) {
@@ -2278,25 +2290,50 @@ async function runPhraseAnalysis() {
   btn.textContent = '⏳ Analyzing…';
   btn.disabled = true;
   try {
-    await api(`/api/track/${PLAYER.trackId}/analyze-phrases`, {
+    const result = await api(`/api/track/${PLAYER.trackId}/analyze-phrases`, {
       method: 'POST',
       body: JSON.stringify({ replace: true }),
     });
-    // Reload cues from DB
+    // Store mix profile on the player state
+    if (result.mix_profile) {
+      PLAYER.mixProfile = result.mix_profile;
+    }
+    // Reload cues from DB (now includes newly written phrase cues)
     PLAYER.cues    = await api(`/api/track/${PLAYER.trackId}/cues`).catch(() => []);
     PLAYER.phrases = PLAYER.cues.filter(c => Object.keys(PHRASE_COLORS).includes(c.comment));
     renderPhraseBar();
     renderCueList();
+    renderMixProfile();
     // Rebuild static layer with new cue markers
     PLAYER.staticCanvas = null;
     drawWaveform();
-    showToast(`⚡ ${PLAYER.phrases.length} phrase sections detected`, 'success');
+    const mp = result.mix_profile;
+    const msg = mp
+      ? `⚡ ${result.phrases.length} sections — blend ${mp.blend_bars} bars (${mp.preferred_transition})`
+      : `⚡ ${result.phrases?.length ?? 0} phrase sections detected`;
+    showToast(msg, 'success');
   } catch (e) {
     showToast(`❌ Phrase analysis failed: ${e.message}`, 'error');
   } finally {
     btn.textContent = '⚡ Re-analyze';
     btn.disabled = false;
   }
+}
+
+function renderMixProfile() {
+  const mp = PLAYER.mixProfile;
+  const el = document.getElementById('mix-profile-bar');
+  if (!el) return;
+  if (!mp) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  const fmtMs = ms => { const s = Math.round(ms/1000); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; };
+  el.innerHTML = `
+    <span title="Bars before first drop — how long DJ has to blend in">🎚 Intro ${mp.pre_drop_bars} bars</span>
+    <span title="First Chorus/drop">🔴 Drop ${fmtMs(mp.first_chorus_ms || 0)}</span>
+    <span title="Where outro starts — mix-out point">🟣 Outro ${fmtMs(mp.outro_start_ms)}</span>
+    <span title="Recommended blend length">⟷ Blend ${mp.blend_bars} bars</span>
+    <span title="Transition strategy" style="color:var(--accent)">${{blend:'Blend',drop_to_drop:'Drop→Drop',breakdown_entry:'Breakdown Entry'}[mp.preferred_transition]||mp.preferred_transition}</span>
+  `;
 }
 
 // ── Player canvas event wiring (runs once after DOM is ready) ─────────────

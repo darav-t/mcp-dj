@@ -23,6 +23,10 @@ Endpoints:
 
   POST /api/essentia/analyze           - Analyze a single audio file with Essentia
   POST /api/essentia/analyze-library   - Batch-analyze the full library with Essentia
+
+  POST /api/phrases/analyze-library    - Batch phrase detection (section structure + mix profiles)
+  GET  /api/track/{id}/phrases         - Get cached phrase data + mix profile for a track
+  POST /api/track/{id}/analyze-phrases - Detect phrases on a single track, write Rekordbox cues
 """
 
 import asyncio
@@ -49,6 +53,7 @@ from .ai_integration import SetlistAI
 from .models import SetlistRequest
 from .library_index import LibraryIndex, LibraryIndexFeatureStore
 from .intent import parse_set_intent, interpret_vibe
+from .phrase_store import PhraseStore, analyze_library_phrases
 
 # Optional Essentia integration
 try:
@@ -74,7 +79,8 @@ db = RekordboxDatabase()
 energy_resolver = EnergyResolver()
 camelot = CamelotWheel()
 planner = EnergyPlanner()
-engine = SetlistEngine(camelot=camelot, energy_planner=planner)
+phrase_store = PhraseStore()
+engine = SetlistEngine(camelot=camelot, energy_planner=planner, phrase_store=phrase_store)
 ai: Optional[SetlistAI] = None
 library_index: Optional[LibraryIndex] = None
 library_attributes: Optional[Dict[str, Any]] = None   # dynamic — scanned at build time
@@ -137,6 +143,9 @@ async def lifespan(app_instance: FastAPI):
             f"Library index built: {stats['total']} tracks "
             f"({stats['with_essentia']} with Essentia, {stats['with_mik']} with MIK)"
         )
+
+    # Attach library index to phrase store so phrase data is stored in the JSONL
+    phrase_store.attach_index(library_index)
 
     # Initialize AI — pass library context so Claude can use MyTag-aware set building
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -1423,7 +1432,135 @@ async def analyze_library_essentia(body: AnalyzeLibraryRequest):
         result["library_index_total"] = idx_stats["total"]
         result["library_index_with_essentia"] = idx_stats["with_essentia"]
 
+    # Run phrase analysis on any tracks not yet cached (non-blocking on errors)
+    logger.info("Running phrase analysis on new/uncached tracks…")
+    phrase_analyzed = 0
+    phrase_cached   = 0
+    phrase_errors   = 0
+
+    def _phrase_progress(track_id, idx, total, status):
+        nonlocal phrase_analyzed, phrase_cached, phrase_errors
+        if status == "analyzed":   phrase_analyzed += 1
+        elif status == "cached":   phrase_cached   += 1
+        elif status.startswith("error"): phrase_errors += 1
+
+    phrase_stats = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: analyze_library_phrases(
+            tracks=tracks_to_process,
+            phrase_store=phrase_store,
+            library_index=library_index,
+            force=body.force,
+            flush_every=20,
+            progress_callback=_phrase_progress,
+        ),
+    )
+    result["phrases_analyzed_new"]  = phrase_stats["analyzed"]
+    result["phrases_from_cache"]    = phrase_stats["cached"]
+    result["phrases_errors"]        = phrase_stats["errors"]
+
     return JSONResponse(result)
+
+
+# ---------------------------------------------------------------------------
+# Routes — Phrase detection / mix profile
+# ---------------------------------------------------------------------------
+
+class AnalyzePhrasesLibraryRequest(BaseModel):
+    force: bool = False
+    limit: Optional[int] = None
+
+
+@app.post("/api/phrases/analyze-library")
+async def analyze_phrases_library(body: AnalyzePhrasesLibraryRequest):
+    """Batch phrase detection across the full library.
+
+    Runs the phrase detector on every track and caches:
+      • Section structure  (Intro / Up / Chorus / Down / Outro)
+      • MixProfile         (intro length, first drop, outro, blend_bars)
+
+    The MixProfile data is used by the set-generation algorithm to:
+      • Know WHERE to start mixing the next track (outgoing outro)
+      • Know HOW LONG to blend (based on incoming intro length)
+      • Choose a transition type (blend / drop-to-drop / breakdown entry)
+
+    Results are cached per-track in .data/phrase_cache/{track_id}.json.
+    Already-cached tracks are skipped unless force=true.
+
+    CPU-intensive — roughly 10-30 seconds per track depending on length.
+    """
+    tracks_to_process = engine.tracks
+    if body.limit is not None:
+        tracks_to_process = tracks_to_process[:body.limit]
+
+    total_in_library = len(engine.tracks)
+    analyzed = 0
+    cached   = 0
+    errors   = 0
+    skipped  = 0
+
+    logger.info(
+        "Starting phrase library analysis: %d tracks (force=%s)",
+        len(tracks_to_process), body.force,
+    )
+
+    def _progress(track_id, idx, total, status):
+        nonlocal analyzed, cached, errors, skipped
+        if status == "analyzed":
+            analyzed += 1
+        elif status == "cached":
+            cached += 1
+        elif status == "skipped_no_file":
+            skipped += 1
+        elif status.startswith("error"):
+            errors += 1
+        if (idx + 1) % 25 == 0 or idx + 1 == total:
+            logger.info(
+                "Phrase analysis progress: %d/%d  analyzed=%d cached=%d errors=%d",
+                idx + 1, total, analyzed, cached, errors,
+            )
+
+    stats = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: analyze_library_phrases(
+            tracks=tracks_to_process,
+            phrase_store=phrase_store,
+            library_index=library_index,
+            force=body.force,
+            flush_every=20,
+            progress_callback=_progress,
+        ),
+    )
+
+    return JSONResponse({
+        "total_tracks_in_library": total_in_library,
+        "tracks_processed":        len(tracks_to_process),
+        "analyzed_new":            stats["analyzed"],
+        "loaded_from_cache":       stats["cached"],
+        "skipped_no_file":         stats["skipped_no_file"],
+        "errors":                  stats["errors"],
+        "cache_directory":         str(phrase_store._dir),
+        "message": (
+            f"Phrase analysis complete. {stats['analyzed']} new tracks analyzed, "
+            f"{stats['cached']} loaded from cache, {stats['errors']} errors."
+        ),
+    })
+
+
+@app.get("/api/track/{track_id}/phrases")
+async def get_track_phrases(track_id: str):
+    """Return cached phrase detection results for a track.
+
+    Returns section structure (Intro/Up/Chorus/Down/Outro) and the derived
+    MixProfile with DJ transition parameters.
+    """
+    data = phrase_store.get(track_id)
+    if not data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No phrase data cached for track {track_id}. Run analyze-phrases first.",
+        )
+    return JSONResponse(data)
 
 
 # ---------------------------------------------------------------------------
@@ -1484,13 +1621,29 @@ async def analyze_track_phrases(track_id: str, body: AnalyzePhrasesRequest = Non
     cues = await asyncio.get_event_loop().run_in_executor(
         None, lambda: detector.detect(track.file_path, bpm=track.bpm)
     )
+
+    # Save to phrase store (mix profile + sections)
+    dur_s = float(track.length or 300)
+    mix_profile = phrase_store.save(track_id, cues, bpm=float(track.bpm or 128), duration_s=dur_s)
+
+    # Optionally write as Rekordbox memory cues
     if db.db is not None:
         write_phrase_cues(db.db, track_id, cues, replace_existing=body.replace)
 
-    return JSONResponse([
-        {"time_ms": c.time_ms, "label": c.label, "color": c.color, "bar_number": c.bar_number}
-        for c in cues
-    ])
+    return JSONResponse({
+        "phrases": [
+            {"time_ms": c.time_ms, "label": c.label, "color": c.color, "bar_number": c.bar_number}
+            for c in cues
+        ],
+        "mix_profile": {
+            "pre_drop_bars":         mix_profile.pre_drop_bars,
+            "outro_bars":            mix_profile.outro_bars,
+            "blend_bars":            mix_profile.blend_bars,
+            "first_chorus_ms":       mix_profile.first_chorus_ms,
+            "outro_start_ms":        mix_profile.outro_start_ms,
+            "preferred_transition":  mix_profile.preferred_transition,
+        },
+    })
 
 
 # ---------------------------------------------------------------------------
